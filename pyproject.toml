@@ -3,12 +3,21 @@ name = "lipnet-serbian"
 version = "0.1.0"
 description = "Vizuelno prepoznavanje srpskog govora pomoću LipNet modela"
 readme = "README.md"
-requires-python = ">=3.12"
+requires-python = ">=3.10"
 dependencies = [
-    "mediapipe==0.10.21",
+    "editdistance>=0.8.1",
+    "numpy>=1.26",
+    "opencv-python-headless>=4.10",
+]
+
+[project.optional-dependencies]
+colab = [
+    "face-alignment==1.4.1",
 ]
 
 [dependency-groups]
 dev = [
     "ipykernel>=6.30.1",
+    "nbformat>=5.10.4",
+    "pytest>=8.4",
 ]

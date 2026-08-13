@@ -79,6 +79,9 @@ target/
 # Local datasets (large and potentially identifiable)
 /processed/
 /processed.zip
+/ai_speak_lip/
+/GRID_align_txt/
+/lip/
 
 # Training outputs
 /artifacts/
@@ -88,6 +91,7 @@ target/
 *.pt
 *.pth
 *.ckpt
+*.jsonl
 
 # Mac OS-specific storage files
 .DS_Store

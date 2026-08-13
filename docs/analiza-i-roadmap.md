@@ -2,6 +2,20 @@
 
 Datum revizije: 13. avgust 2026.
 
+## Status implementacije
+
+Kod i Colab notebookovi za Faze 0–4 napisani su 13. avgusta 2026. Prihvatni
+kriterijumi koji zahtevaju GRID/AI-SPEAK podatke ili GPU namerno još nisu
+označeni kao izvršeni; potvrđuju se redom u `playground/00_...` do `04_...`.
+
+| Faza | Kod/notebook | Izvršni status |
+|---:|---|---|
+| 0 | pin, licenca, inventar i legacy isolation check | spremno za CPU Run all |
+| 1 | originalni VIPL naspram lokalnog GRID parity toka | spremno za Colab GPU |
+| 2 | VIPL demo MP4 → mouth JPEG + QA/log | spremno za Colab GPU |
+| 3 | srpski Dataset, split i promenljivi collate | spremno posle artefakta Faze 2 |
+| 4 | 29-klasni head, transfer audit i CTC backward | spremno posle Faze 3, Colab GPU |
+
 ## 1. Nova odluka
 
 Projekat se ponovo radi polazeći od referentnog repozitorijuma
