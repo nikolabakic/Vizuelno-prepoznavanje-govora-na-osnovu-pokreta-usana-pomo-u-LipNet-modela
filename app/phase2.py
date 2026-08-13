@@ -5,7 +5,14 @@ import csv
 import json
 from pathlib import Path
 
-from app.data import ManifestRow, build_manifest, make_split, vocab_payload, write_json, write_manifest
+from app.data import (
+    ManifestRow,
+    build_manifest,
+    make_split,
+    vocab_payload,
+    write_json,
+    write_manifest,
+)
 from app.preprocessing import build_rois, write_qa_sheet, write_rois
 
 
@@ -36,7 +43,9 @@ def build_command(args: argparse.Namespace) -> None:
     write_json(split, args.output / "split.json")
     write_json(vocab_payload(), args.output / "vocab.json")
     counts = {name: len(split[name]) for name in ("train", "validation", "test")}
-    print(f"Manifest: {len(rows)} primera, {len({row.speaker_id for row in rows})} govornika")
+    print(
+        f"Manifest: {len(rows)} primera, {len({row.speaker_id for row in rows})} govornika"
+    )
     print(f"Split: {counts}; izlaz: {args.output}")
 
 
@@ -44,21 +53,34 @@ def roi_command(args: argparse.Namespace) -> None:
     manifest = read_manifest(args.input / "manifest.csv")
     rois = build_rois(manifest, args.corpus.resolve(), samples=args.samples)
     write_rois(rois, args.input / "roi.csv")
-    qa_ids = write_qa_sheet(manifest, rois, args.corpus.resolve(), args.input / "roi_qa.jpg", args.qa_count)
-    write_json({"sample_ids": qa_ids, "manual_review_complete": False}, args.input / "roi_qa.json")
+    qa_ids = write_qa_sheet(
+        manifest, rois, args.corpus.resolve(), args.input / "roi_qa.jpg", args.qa_count
+    )
+    write_json(
+        {"sample_ids": qa_ids, "manual_review_complete": False},
+        args.input / "roi_qa.json",
+    )
     fallback = sum(row.source != "detected" for row in rois)
-    print(f"ROI: {len(rois)} primera, fallback={fallback}; ručno pregledaj {args.input / 'roi_qa.jpg'}")
+    print(
+        f"ROI: {len(rois)} primera, fallback={fallback}; ručno pregledaj {args.input / 'roi_qa.jpg'}"
+    )
 
 
 def parser() -> argparse.ArgumentParser:
-    result = argparse.ArgumentParser(description="LipNet faza 2: manifest, split, vokabular i mouth ROI")
+    result = argparse.ArgumentParser(
+        description="LipNet faza 2: manifest, split, vokabular i mouth ROI"
+    )
     commands = result.add_subparsers(required=True)
-    build = commands.add_parser("build", help="Generiši i validiraj manifest, split i vokabular")
+    build = commands.add_parser(
+        "build", help="Generiši i validiraj manifest, split i vokabular"
+    )
     build.add_argument("--corpus", type=Path, default=Path("processed/processed"))
     build.add_argument("--output", type=Path, default=Path("artifacts/phase2"))
     build.add_argument("--seed", type=int, default=42)
     build.set_defaults(handler=build_command)
-    roi = commands.add_parser("roi", help="Detektuj stabilan mouth ROI i napravi QA sliku")
+    roi = commands.add_parser(
+        "roi", help="Detektuj stabilan mouth ROI i napravi QA sliku"
+    )
     roi.add_argument("--corpus", type=Path, default=Path("processed/processed"))
     roi.add_argument("--input", type=Path, default=Path("artifacts/phase2"))
     roi.add_argument("--samples", type=int, default=5)
@@ -70,4 +92,3 @@ def parser() -> argparse.ArgumentParser:
 if __name__ == "__main__":
     arguments = parser().parse_args()
     arguments.handler(arguments)
-
