@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import zipfile
 from collections import defaultdict
 from dataclasses import asdict, dataclass
 from pathlib import Path
@@ -29,6 +30,36 @@ class ClipResult:
     decoded_frames: int
     landmark_frames: int
     dropped_frames: int
+
+
+def write_checkpoint(
+    block: list[ClipResult],
+    failures: list[str],
+    output_root: Path,
+    checkpoint_dir: Path,
+    start_index: int,
+    end_index: int,
+) -> Path:
+    """Persist one bounded block as a single Drive-friendly ZIP file."""
+    checkpoint_dir.mkdir(parents=True, exist_ok=True)
+    destination = checkpoint_dir / f"chunk_{start_index:06d}_{end_index:06d}.zip"
+    temporary = checkpoint_dir / f".{destination.name}.tmp"
+    with zipfile.ZipFile(temporary, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+        for result in block:
+            sample_dir = output_root / result.speaker / "video" / "video_a" / result.sample_id
+            for frame in sorted(sample_dir.glob("*.jpg"), key=lambda path: int(path.stem)):
+                archive.write(frame, frame.relative_to(output_root))
+        archive.writestr(
+            "_checkpoint/results.jsonl",
+            "".join(json.dumps(asdict(item), ensure_ascii=False) + "\n" for item in block),
+        )
+        archive.writestr(
+            "_checkpoint/failures.log",
+            "\n".join(failures) + ("\n" if failures else ""),
+        )
+    temporary.replace(destination)
+    print(f"Drive checkpoint: {destination.name}", flush=True)
+    return destination
 
 
 def discover_pairs(corpus_root: Path) -> list[tuple[str, str, Path, Path]]:
@@ -104,7 +135,9 @@ def run(args: argparse.Namespace) -> None:
 
     aligner = make_face_aligner(device=args.device, face_detector=args.face_detector)
     results: list[ClipResult] = []
+    checkpoint_results: list[ClipResult] = []
     failures: list[str] = []
+    checkpoint_start = 1
     for index, (sample_id, speaker, video_path, _) in enumerate(pairs, start=1):
         destination = output_root / speaker / "video" / "video_a" / sample_id
         try:
@@ -129,12 +162,26 @@ def run(args: argparse.Namespace) -> None:
                     dropped_frames=processed.dropped_frames,
                 )
             results.append(result)
+            checkpoint_results.append(result)
         except Exception as exc:  # keep the corpus job alive and make failures explicit
             message = f"{sample_id}\t{type(exc).__name__}: {exc}"
             failures.append(message)
             print(f"NEUSPEH {message}", flush=True)
         if index % args.report_every == 0 or index == len(pairs):
             print(f"Preprocessing {index}/{len(pairs)} | uspešno={len(results)} | neuspešno={len(failures)}", flush=True)
+        if args.checkpoint_dir and (
+            index % args.checkpoint_every == 0 or index == len(pairs)
+        ):
+            write_checkpoint(
+                checkpoint_results,
+                failures,
+                output_root,
+                args.checkpoint_dir,
+                checkpoint_start,
+                index,
+            )
+            checkpoint_results = []
+            checkpoint_start = index + 1
 
     # JSONL is a runtime/audit log only. Dataset discovery never reads it.
     log_path = output_root / "preprocessing.jsonl"
@@ -161,6 +208,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--limit", type=int)
     parser.add_argument("--resume", action="store_true")
     parser.add_argument("--report-every", type=int, default=25)
+    parser.add_argument("--checkpoint-dir", type=Path)
+    parser.add_argument("--checkpoint-every", type=int, default=25)
     return parser.parse_args()
 
 

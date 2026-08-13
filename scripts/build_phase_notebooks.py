@@ -376,8 +376,9 @@ def phase2() -> nbf.NotebookNode:
             ## Goal
 
             Pretvori `spk*/ser/video_a/*.mp4` u numerisane `128×64` mouth JPEG frejmove
-            koristeći VIPL face alignment, afinu transformaciju i crop. Ne generiše se
-            manifest, vocab, split ili statičan ROI. Neuspesi ostaju u običnom logu.
+            koristeći brzi BlazeFace detector, isti 68-point face alignment, VIPL afinu
+            transformaciju i crop. Ne generiše se manifest, vocab, split ili statičan ROI.
+            Neuspesi ostaju u običnom logu.
             """),
             md("""
             ## Setup
@@ -409,7 +410,8 @@ def phase2() -> nbf.NotebookNode:
             ZIP_ON_DRIVE = Path('/content/drive/MyDrive/processed.zip')  # promeni po potrebi
             LOCAL_ZIP = Path('/content/processed.zip')
             EXTRACT_ROOT = Path('/content/ai_speak_source')
-            OUTPUT_ROOT = Path('/content/ai_speak_lip')
+            OUTPUT_ROOT = Path('/content/ai_speak_lip_blazeface')
+            CHECKPOINT_DIR = DRIVE_ROOT / 'phase2_chunks_blazeface'
             RUN_FULL_PREPROCESSING = True
 
             assert ZIP_ON_DRIVE.exists(), ZIP_ON_DRIVE
@@ -427,15 +429,37 @@ def phase2() -> nbf.NotebookNode:
             assert videos and len(videos) == len(annotations), (len(videos), len(annotations))
             print('Korpus:', CORPUS_ROOT)
             print('MP4/ALIGN:', len(videos), len(annotations))
+
+            # Restore every completed block after a fresh/disconnected runtime.
+            CHECKPOINT_DIR.mkdir(parents=True, exist_ok=True)
+            checkpoint_archives = sorted(CHECKPOINT_DIR.glob('chunk_*.zip'))
+            if checkpoint_archives and not next(OUTPUT_ROOT.glob('spk*/video/video_a/*'), None):
+                OUTPUT_ROOT.mkdir(parents=True, exist_ok=True)
+                for index, checkpoint in enumerate(checkpoint_archives, start=1):
+                    with zipfile.ZipFile(checkpoint) as archive:
+                        archive.extractall(OUTPUT_ROOT)
+                    if index % 25 == 0 or index == len(checkpoint_archives):
+                        print(f'Vraćeni checkpoint-i: {index}/{len(checkpoint_archives)}')
+            restored_samples = len(list(OUTPUT_ROOT.glob('spk*/video/video_a/*')))
+            print('Vraćeno/zatečeno gotovih sample foldera:', restored_samples)
             """),
             md("### 2. Prvo uradi jedan GPU smoke primer i upstream `_load_vid` proveru"),
             code("""
-            SMOKE_ROOT = Path('/content/ai_speak_lip_smoke')
-            subprocess.run([
-                sys.executable, 'scripts/prepare_ai_speak.py',
+            SMOKE_ROOT = Path('/content/ai_speak_lip_blazeface_smoke')
+            smoke_command = [
+                sys.executable, '-m', 'scripts.prepare_ai_speak',
                 '--corpus', str(CORPUS_ROOT), '--output', str(SMOKE_ROOT),
-                '--device', 'cuda', '--face-detector', 'sfd', '--limit', '1',
-            ], check=True)
+                '--device', 'cuda', '--face-detector', 'blazeface', '--limit', '1',
+            ]
+            print('Pokrećem:', ' '.join(smoke_command))
+            smoke = subprocess.run(smoke_command, text=True, capture_output=True)
+            print(smoke.stdout)
+            if smoke.returncode:
+                print(smoke.stderr)
+                raise RuntimeError(
+                    f'AI-SPEAK smoke preprocessing nije uspeo (exit={smoke.returncode}). '
+                    'Stvarna greška je odštampana neposredno iznad.'
+                )
 
             from lipnet.dataset import MyDataset
             sample_folder = next(SMOKE_ROOT.glob('spk*/video/video_a/*'))
@@ -449,10 +473,12 @@ def phase2() -> nbf.NotebookNode:
             code("""
             if RUN_FULL_PREPROCESSING:
                 subprocess.run([
-                    sys.executable, 'scripts/prepare_ai_speak.py',
+                    sys.executable, '-m', 'scripts.prepare_ai_speak',
                     '--corpus', str(CORPUS_ROOT), '--output', str(OUTPUT_ROOT),
-                    '--device', 'cuda', '--face-detector', 'sfd', '--resume',
-                    '--report-every', '25',
+                    '--device', 'cuda', '--face-detector', 'blazeface', '--resume',
+                    '--report-every', '5',
+                    '--checkpoint-dir', str(CHECKPOINT_DIR),
+                    '--checkpoint-every', '10',
                 ], check=True)
             else:
                 print('RUN_FULL_PREPROCESSING=False: ceo GPU posao je namerno preskočen.')
