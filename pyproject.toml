@@ -1,10 +1,12 @@
 [project]
-name = "ai-project-template"
+name = "lipnet-serbian"
 version = "0.1.0"
-description = "Add your description here"
+description = "Vizuelno prepoznavanje srpskog govora pomoću LipNet modela"
 readme = "README.md"
 requires-python = ">=3.12"
-dependencies = []
+dependencies = [
+    "mediapipe==0.10.21",
+]
 
 [dependency-groups]
 dev = [

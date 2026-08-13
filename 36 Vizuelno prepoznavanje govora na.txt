@@ -1,0 +1,47 @@
+36 Vizuelno prepoznavanje govora na osnovu pokreta usana
+pomoću LipNet modela
+Opis problema
+Vizuelno prepoznavanje govora (lip reading) predstavlja zadatak određivanja izgovorenog sadrzaja
+samo na osnovu video snimka pokreta usana i donjeg dela lica. Problem je posebno izazovan jer
+mnogi fonemi imaju veoma slican vizuelni izgled, deo govornih informacija nije vidljiv, a model
+mora da uci i prostorne i vremenske obrasce. Lip reading sistemi imaju znacajnu primenu u
+uslovima jakog suma, u asistivnim tehnologijama i audio-vizuelnim komunikacionim sistemima.
+Opis zadatka
+Kao osnovnu literaturu koristiti:
+• Assael, Y. M. et al. — LipNet: End-to-End Sentence-level Lipreading
+https://arxiv.org/abs/1611.01599
+Kao bazu koristiti:
+• GRID Corpus
+https://spandh.dcs.shef.ac.uk/gridcorpus/
+Kao poc etnu implementaciju koristiti:
+• https://github.com/VIPL-Audio-Visual-Speech-Understanding/LipNet-PyTorch
+Zadatak studenta je da prouci problem vizuelnog prepoznavanja govora i pokrene postojec u LipNet
+implementaciju u Google Colab okruzenju. Fokus nije na punoj obuci modela od nule, vec na
+razumevanju pipeline-a, pripreme video podataka i analizi rada predtreniranog modela kroz
+inference i manje eksperimente.
+Teorijski deo
+Student treba detaljno da prouci i razume:
+• razliku između audio ASR i vizuelnog govora,
+• zasto je lip reading tezak problem,
+• nacin predstavljanja video sekvence kao ulaza za neuronsku mrezu,
+• osnovnu ideju spatiotemporalnih konvolucija,
+• ulogu rekurentnog dela modela,
+• osnovnu ideju CTC (Connectionist Temporal Classification) pristupa,
+• razliku između frame-level i sequence-level modelovanja,
+• pojam vizema i zasto pojedini fonemi izgledaju slicno,
+• uticaj rezolucije i regiona interesa (ROI) na performanse sistema.
+Potrebno je analizirati GRID bazu: strukturu videa, trajanje sekvenci, broj govornika i organizaciju
+tekstualnih oznaka.
+Praktični deo
+Potrebno je:
+• pokrenuti inference koriscenjem postojec eg LipNet modela,
+• analizirati nac in ucitavanja i pripreme video frejmova,
+• izvrsiti eksperimente sa promenom rezolucije ulaza,
+• izvrsiti jednostavne augmentacije poput blur-a ili crop jitter-a,
+• finetune-ovati model na deo AI-SPEAK baze sa linka,
+• prikazati kvalitativne rezultate i komentarisati tipicne greske modela.
+Finalni izvestaj treba da sadrzi:
+• opis LipNet arhitekture i osnovne ideje CTC pristupa,
+• prikaz eksperimenata i kvalitativnih rezultata,
+• analizu tipicnih gresaka i ogranic enja sistema.
+Na usmenoj odbrani student c e prikazati kod, opisati urađeno i prezentovati dobijene rezultate.

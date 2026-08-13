@@ -76,6 +76,19 @@ target/
 # Jupyter NB Checkpoints
 .ipynb_checkpoints/
 
+# Local datasets (large and potentially identifiable)
+/processed/
+/processed.zip
+
+# Training outputs
+/artifacts/
+/checkpoints/
+/weights/
+/runs/
+*.pt
+*.pth
+*.ckpt
+
 # Mac OS-specific storage files
 .DS_Store
 
