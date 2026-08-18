@@ -253,6 +253,13 @@ class SerbianDataset(MyDataset):
             "vid_len": int(video.shape[0]),
         }
 
+    def ctc_lengths(self, idx: int) -> tuple[int, torch.Tensor]:
+        """Read only frame names and transcript for a fast pre-training CTC audit."""
+        video_path, speaker, name = self.data[idx]
+        video_length = len(_numeric_jpegs(video_path))
+        text = parse_ai_speak_alignment(self._alignment_path(speaker, name))
+        return video_length, torch.from_numpy(self.txt2arr(text, start=1)).long()
+
 
 def variable_length_collate(
     samples: Sequence[dict[str, torch.Tensor | int]],

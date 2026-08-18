@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Generate the five reader-facing Colab notebooks for phases 0 through 4."""
+"""Generate the six reader-facing Colab notebooks for phases 0 through 5."""
 
 from __future__ import annotations
 
@@ -415,14 +415,23 @@ def phase2() -> nbf.NotebookNode:
             RUN_FULL_PREPROCESSING = True
 
             assert ZIP_ON_DRIVE.exists(), ZIP_ON_DRIVE
-            if not LOCAL_ZIP.exists():
+            if not LOCAL_ZIP.exists() or not zipfile.is_zipfile(LOCAL_ZIP):
+                if LOCAL_ZIP.exists():
+                    LOCAL_ZIP.unlink()
                 shutil.copy2(ZIP_ON_DRIVE, LOCAL_ZIP)
-            if not EXTRACT_ROOT.exists():
-                EXTRACT_ROOT.mkdir(parents=True)
+
+            EXTRACT_ROOT.mkdir(parents=True, exist_ok=True)
+            alignment = next(EXTRACT_ROOT.rglob('spk*/alignment/*.align'), None)
+            if alignment is None:
+                print('AI-SPEAK sadržaj nije pronađen; raspakujem processed.zip...')
                 with zipfile.ZipFile(LOCAL_ZIP) as archive:
                     archive.extractall(EXTRACT_ROOT)
+                alignment = next(EXTRACT_ROOT.rglob('spk*/alignment/*.align'), None)
 
-            alignment = next(EXTRACT_ROOT.rglob('spk*/alignment/*.align'))
+            assert alignment is not None, (
+                f'Posle raspakivanja nema spk*/alignment/*.align u {EXTRACT_ROOT}. '
+                'Proveri strukturu processed.zip arhive.'
+            )
             CORPUS_ROOT = alignment.parents[2]
             videos = list(CORPUS_ROOT.glob('spk*/ser/video_a/*.mp4'))
             annotations = list(CORPUS_ROOT.glob('spk*/alignment/*.align'))
@@ -810,6 +819,427 @@ def phase4() -> nbf.NotebookNode:
     )
 
 
+def phase5() -> nbf.NotebookNode:
+    return notebook(
+        "Faza 5 — baseline fine-tuning srpskog LipNet-a",
+        [
+            md("""
+            ## Goal
+
+            Fine-tune-uj preneti VIPL model na speaker-disjoint AI-SPEAK splitu. Prve tri
+            epohe uče samo novi srpski head, zatim se odmrzava ceo model. Najbolji checkpoint
+            bira se isključivo strogo manjim validation WER-om; test govornici se evaluiraju
+            tek nakon izbora modela.
+            """),
+            md("""
+            ## Setup
+
+            Izaberi **Runtime → Change runtime type → T4 GPU**. Notebook čuva `latest.pt`,
+            `best.pt`, istoriju i rezultate u `MyDrive/LipNet/phase5`, pa bezbedno nastavlja
+            rad posle prekida Colab sesije.
+            """),
+            code("""
+            import subprocess, sys
+            subprocess.run(
+                [sys.executable, '-m', 'pip', 'install', '-q',
+                 'editdistance>=0.8.1', 'opencv-python-headless>=4.10',
+                 'nbformat>=5.10.4', 'pytest>=8.4'],
+                check=True,
+            )
+            """),
+            code(repo_setup_cell()),
+            code("""
+            import json
+            import random
+            from dataclasses import asdict
+
+            import matplotlib.pyplot as plt
+            import numpy as np
+            import torch
+
+            from lipnet.train import FineTuneConfig
+
+            assert torch.cuda.is_available(), 'Uključi T4 GPU u Colab Runtime postavkama.'
+            DEVICE = torch.device('cuda')
+            CONFIG = FineTuneConfig(
+                max_epochs=30,
+                warmup_epochs=3,
+                early_stopping_patience=5,
+                batch_size=2,
+                backbone_lr=2e-5,
+                head_lr=1e-4,
+                num_workers=2,
+                random_seed=0,
+            )
+            random.seed(CONFIG.random_seed)
+            np.random.seed(CONFIG.random_seed)
+            torch.manual_seed(CONFIG.random_seed)
+            torch.cuda.manual_seed_all(CONFIG.random_seed)
+            print('GPU:', torch.cuda.get_device_name(0))
+            print('Konfiguracija:', json.dumps(asdict(CONFIG), indent=2))
+            """),
+            code(drive_setup_cell()),
+            code("""
+            PHASE5_DIR = DRIVE_ROOT / 'phase5'
+            PHASE5_DIR.mkdir(parents=True, exist_ok=True)
+            LATEST_CHECKPOINT = PHASE5_DIR / 'latest.pt'
+            BEST_CHECKPOINT = PHASE5_DIR / 'best.pt'
+            HISTORY_PATH = PHASE5_DIR / 'history.json'
+            RESULTS_PATH = PHASE5_DIR / 'results.json'
+            CURVES_PATH = PHASE5_DIR / 'training_curves.png'
+            print('Phase 5 izlaz:', PHASE5_DIR)
+            """),
+            md("### 0. Pokreni CPU kompatibilnosne testove"),
+            code("""
+            subprocess.run(
+                [sys.executable, '-m', 'pytest', '-q',
+                 'tests/test_vipl_phases.py', 'tests/test_phase5.py'],
+                check=True,
+            )
+            """),
+            md("## Steps\n\n### 1. Raspakuj mouth frejmove i ALIGN anotacije na lokalni disk"),
+            code("""
+            import zipfile
+
+            MOUTH_ARCHIVE = DRIVE_ROOT / 'ai_speak_lip.zip'
+            SOURCE_ARCHIVE = Path('/content/drive/MyDrive/processed.zip')  # promeni po potrebi
+            MOUTH_ROOT = Path('/content/ai_speak_lip')
+            ALIGN_EXTRACT = Path('/content/ai_speak_align')
+            assert MOUTH_ARCHIVE.exists(), MOUTH_ARCHIVE
+            assert SOURCE_ARCHIVE.exists(), SOURCE_ARCHIVE
+
+            if not next(MOUTH_ROOT.glob('spk*/video/video_a/*'), None):
+                MOUTH_ROOT.mkdir(parents=True, exist_ok=True)
+                with zipfile.ZipFile(MOUTH_ARCHIVE) as archive:
+                    archive.extractall(MOUTH_ROOT)
+            if not next(ALIGN_EXTRACT.rglob('spk*/alignment/*.align'), None):
+                ALIGN_EXTRACT.mkdir(parents=True, exist_ok=True)
+                with zipfile.ZipFile(SOURCE_ARCHIVE) as archive:
+                    members = [
+                        member for member in archive.infolist()
+                        if '/alignment/' in f'/{member.filename}'
+                        and member.filename.endswith('.align')
+                    ]
+                    archive.extractall(ALIGN_EXTRACT, members=members)
+            first_alignment = next(ALIGN_EXTRACT.rglob('spk*/alignment/*.align'))
+            CORPUS_ROOT = first_alignment.parents[2]
+            print('Mouth root:', MOUTH_ROOT)
+            print('Annotation root:', CORPUS_ROOT)
+            """),
+            md("### 2. Formiraj splitove i runtime CTC filter bez manifesta"),
+            code("""
+            from torch.utils.data import DataLoader, Subset
+
+            from data.splits import (
+                SPLITS, TEST_SPEAKERS, TRAIN_SPEAKERS, VALIDATION_SPEAKERS,
+            )
+            from lipnet.dataset import SerbianDataset, variable_length_collate
+            from lipnet.train import scan_ctc_compatibility
+
+            raw_datasets = {
+                'train': SerbianDataset(MOUTH_ROOT, CORPUS_ROOT, TRAIN_SPEAKERS, phase='train'),
+                'validation': SerbianDataset(
+                    MOUTH_ROOT, CORPUS_ROOT, VALIDATION_SPEAKERS, phase='validation'
+                ),
+                'test': SerbianDataset(MOUTH_ROOT, CORPUS_ROOT, TEST_SPEAKERS, phase='test'),
+            }
+            ctc_reports = {
+                name: scan_ctc_compatibility(dataset)
+                for name, dataset in raw_datasets.items()
+            }
+            datasets = {
+                name: Subset(raw_datasets[name], report.valid_indices)
+                for name, report in ctc_reports.items()
+            }
+            for name, report in ctc_reports.items():
+                print(
+                    f'{name:10s}: valid={report.valid_count}, '
+                    f'CTC-odbačeno={report.invalid_count}'
+                )
+
+            def seed_worker(worker_id):
+                worker_seed = torch.initial_seed() % (2**32)
+                np.random.seed(worker_seed)
+                random.seed(worker_seed)
+
+            def make_loader(name, *, epoch=0, shuffle=False):
+                generator = torch.Generator()
+                generator.manual_seed(CONFIG.random_seed + epoch)
+                return DataLoader(
+                    datasets[name],
+                    batch_size=CONFIG.batch_size,
+                    shuffle=shuffle,
+                    num_workers=CONFIG.num_workers,
+                    collate_fn=variable_length_collate,
+                    pin_memory=True,
+                    worker_init_fn=seed_worker,
+                    generator=generator,
+                    persistent_workers=False,
+                )
+            """),
+            md("### 3. Učitaj transfer ili automatski nastavi `latest.pt`"),
+            code(f"""
+            from urllib.request import urlretrieve
+
+            from lipnet.dataset import SERBIAN_LETTERS
+            from lipnet.model import LipNet
+            from lipnet.train import (
+                build_finetune_optimizer, greedy_decode, load_training_checkpoint,
+                load_vipl_transfer, set_backbone_trainable,
+            )
+
+            UPSTREAM_SHA = {UPSTREAM_SHA!r}
+            VIPL_CHECKPOINT = Path('/content') / {CHECKPOINT_NAME!r}
+            VIPL_CHECKPOINT_URL = (
+                'https://raw.githubusercontent.com/VIPL-Audio-Visual-Speech-Understanding/'
+                f'LipNet-PyTorch/{{UPSTREAM_SHA}}/pretrain/{CHECKPOINT_NAME}'
+            )
+            if not VIPL_CHECKPOINT.exists():
+                urlretrieve(VIPL_CHECKPOINT_URL, VIPL_CHECKPOINT)
+
+            NUM_CLASSES = 1 + len(SERBIAN_LETTERS)
+            assert NUM_CLASSES == 29
+            model = LipNet(num_classes=NUM_CLASSES).to(DEVICE)
+            optimizer = build_finetune_optimizer(
+                model, backbone_lr=CONFIG.backbone_lr, head_lr=CONFIG.head_lr
+            )
+
+            if LATEST_CHECKPOINT.exists():
+                state = load_training_checkpoint(LATEST_CHECKPOINT, model, optimizer)
+                assert state.config == asdict(CONFIG), (
+                    'Resume konfiguracija se razlikuje od CONFIG ćelije: '
+                    f'checkpoint={{state.config}} current={{asdict(CONFIG)}}'
+                )
+                start_epoch = state.next_epoch
+                best_val_wer = state.best_val_wer
+                best_epoch = state.best_epoch
+                epochs_without_improvement = state.epochs_without_improvement
+                history = list(state.history)
+                audit = None
+                print('Nastavljam od epohe', start_epoch + 1)
+            else:
+                audit = load_vipl_transfer(model, VIPL_CHECKPOINT)
+                assert set(audit.skipped_shape) == {{'FC.weight', 'FC.bias'}}
+                assert not audit.missing_in_checkpoint and not audit.unexpected_in_checkpoint
+                start_epoch = 0
+                best_val_wer = float('inf')
+                best_epoch = -1
+                epochs_without_improvement = 0
+                history = []
+                print('Novi trening:', audit.summary())
+
+            set_backbone_trainable(model, start_epoch >= CONFIG.warmup_epochs)
+            """),
+            md("### 4. Treniraj, validiraj i čuvaj latest/best checkpoint"),
+            code("""
+            from lipnet.train import (
+                run_epoch, save_training_checkpoint, validation_wer_improved,
+            )
+
+            checkpoint_metadata = {
+                'phase': 5,
+                'upstream_commit': UPSTREAM_SHA,
+                'num_classes': NUM_CLASSES,
+                'speakers': {name: list(value) for name, value in SPLITS.items()},
+                'ctc_filter': {
+                    name: {'valid': report.valid_count, 'invalid': report.invalid_count}
+                    for name, report in ctc_reports.items()
+                },
+            }
+
+            for epoch in range(start_epoch, CONFIG.max_epochs):
+                backbone_trainable = epoch >= CONFIG.warmup_epochs
+                set_backbone_trainable(model, backbone_trainable)
+                train_result = run_epoch(
+                    model,
+                    make_loader('train', epoch=epoch, shuffle=True),
+                    DEVICE,
+                    optimizer,
+                )
+                validation_result = run_epoch(
+                    model, make_loader('validation'), DEVICE
+                )
+                improved = validation_wer_improved(validation_result.wer, best_val_wer)
+                if improved:
+                    best_val_wer = validation_result.wer
+                    best_epoch = epoch
+
+                if epoch < CONFIG.warmup_epochs:
+                    epochs_without_improvement = 0
+                elif improved:
+                    epochs_without_improvement = 0
+                else:
+                    epochs_without_improvement += 1
+
+                record = {
+                    'epoch': epoch,
+                    'stage': 'full' if backbone_trainable else 'head_only',
+                    'train': train_result.metrics(),
+                    'validation': validation_result.metrics(),
+                }
+                history.append(record)
+                checkpoint_arguments = dict(
+                    model=model,
+                    optimizer=optimizer,
+                    epoch=epoch,
+                    best_val_wer=best_val_wer,
+                    best_epoch=best_epoch,
+                    epochs_without_improvement=epochs_without_improvement,
+                    history=history,
+                    config=CONFIG,
+                    metadata=checkpoint_metadata,
+                )
+                if improved:
+                    save_training_checkpoint(BEST_CHECKPOINT, **checkpoint_arguments)
+                save_training_checkpoint(LATEST_CHECKPOINT, **checkpoint_arguments)
+                HISTORY_PATH.write_text(
+                    json.dumps(history, indent=2, ensure_ascii=False) + '\\n',
+                    encoding='utf-8',
+                )
+
+                print(
+                    f'Epoha {{epoch + 1:02d}}/{{CONFIG.max_epochs}} '
+                    f'[{{record["stage"]}}] '
+                    f'train loss={{train_result.loss:.4f}} WER={{train_result.wer:.4f}} | '
+                    f'val loss={{validation_result.loss:.4f}} '
+                    f'WER={{validation_result.wer:.4f}} CER={{validation_result.cer:.4f}} '
+                    f'exact={{validation_result.sentence_exact_match:.4f}}'
+                    + ('  *BEST*' if improved else '')
+                )
+                if (
+                    epoch >= CONFIG.warmup_epochs
+                    and epochs_without_improvement >= CONFIG.early_stopping_patience
+                ):
+                    print('Early stopping: validation WER se nije poboljšao.')
+                    break
+
+            assert BEST_CHECKPOINT.exists(), 'Nije sačuvan najbolji checkpoint.'
+            print('Najbolja epoha:', best_epoch + 1, 'validation WER:', best_val_wer)
+            """),
+            md("### 5. Prikaži i sačuvaj krive treniranja"),
+            code("""
+            epochs = [item['epoch'] + 1 for item in history]
+            fig, axes = plt.subplots(1, 3, figsize=(15, 4))
+            for axis, metric, title in zip(
+                axes, ('loss', 'wer', 'cer'), ('CTC loss', 'WER', 'CER')
+            ):
+                axis.plot(epochs, [item['train'][metric] for item in history], label='train')
+                axis.plot(
+                    epochs,
+                    [item['validation'][metric] for item in history],
+                    label='validation',
+                )
+                axis.axvline(CONFIG.warmup_epochs, color='gray', linestyle='--', alpha=0.7)
+                axis.set(title=title, xlabel='Epoha', ylabel=metric.upper())
+                axis.grid(alpha=0.25)
+                axis.legend()
+            plt.tight_layout()
+            fig.savefig(CURVES_PATH, dpi=160, bbox_inches='tight')
+            plt.show()
+            """),
+            md("## Checks\n\n### 6. Učitaj `best.pt` i evaluiraj neviđene test govornike jednom"),
+            code("""
+            import hashlib
+
+            from lipnet.train import load_training_checkpoint
+
+            best_state = load_training_checkpoint(
+                BEST_CHECKPOINT, model, optimizer, restore_rng=False
+            )
+            assert best_state.best_epoch == best_state.next_epoch - 1
+            best_validation = next(
+                item['validation']
+                for item in best_state.history
+                if item['epoch'] == best_state.best_epoch
+            )
+            checkpoint_hasher = hashlib.sha256()
+            with BEST_CHECKPOINT.open('rb') as checkpoint_file:
+                for chunk in iter(lambda: checkpoint_file.read(1024 * 1024), b''):
+                    checkpoint_hasher.update(chunk)
+            best_checkpoint_sha256 = checkpoint_hasher.hexdigest()
+            FORCE_TEST_REEVALUATION = False
+            previous_results = None
+            if RESULTS_PATH.exists():
+                previous_results = json.loads(RESULTS_PATH.read_text(encoding='utf-8'))
+
+            if (
+                previous_results is not None
+                and previous_results.get('best_epoch') == best_state.best_epoch
+                and previous_results.get('best_checkpoint_sha256') == best_checkpoint_sha256
+                and not FORCE_TEST_REEVALUATION
+            ):
+                results = previous_results
+                print('Koristim već sačuvanu test evaluaciju za isti best checkpoint.')
+            else:
+                test_result = run_epoch(model, make_loader('test'), DEVICE)
+                qualitative = [
+                    {'reference': reference, 'prediction': prediction}
+                    for reference, prediction in list(
+                        zip(test_result.references, test_result.predictions)
+                    )[:10]
+                ]
+                results = {
+                    'phase': 5,
+                    'upstream_commit': UPSTREAM_SHA,
+                    'config': asdict(CONFIG),
+                    'best_epoch': best_state.best_epoch,
+                    'best_validation_wer': best_state.best_val_wer,
+                    'best_checkpoint_sha256': best_checkpoint_sha256,
+                    'validation': best_validation,
+                    'test': test_result.metrics(),
+                    'test_samples': test_result.samples,
+                    'qualitative': qualitative,
+                    'ctc_filter': checkpoint_metadata['ctc_filter'],
+                }
+                RESULTS_PATH.write_text(
+                    json.dumps(results, indent=2, ensure_ascii=False) + '\\n',
+                    encoding='utf-8',
+                )
+
+            print(json.dumps({
+                'best_epoch': results['best_epoch'] + 1,
+                'validation': results['validation'],
+                'test': results['test'],
+                'test_samples': results['test_samples'],
+            }, indent=2, ensure_ascii=False))
+            for item in results['qualitative']:
+                print('REF :', item['reference'])
+                print('PRED:', item['prediction'])
+                print()
+            """),
+            md("### 7. Potvrdi checkpoint round-trip i inference ugovor"),
+            code("""
+            reloaded_model = LipNet(num_classes=NUM_CLASSES).to(DEVICE)
+            reloaded_optimizer = build_finetune_optimizer(
+                reloaded_model,
+                backbone_lr=CONFIG.backbone_lr,
+                head_lr=CONFIG.head_lr,
+            )
+            reloaded_state = load_training_checkpoint(
+                BEST_CHECKPOINT, reloaded_model, reloaded_optimizer, restore_rng=False
+            )
+            inference_batch = next(iter(make_loader('test')))
+            reloaded_model.eval()
+            with torch.no_grad():
+                inference_logits = reloaded_model(inference_batch['vid'].to(DEVICE))
+            inference_text = greedy_decode(
+                inference_logits, output_lengths=inference_batch['vid_len']
+            )
+            assert len(inference_text) == inference_batch['vid'].shape[0]
+            assert reloaded_state.best_epoch == results['best_epoch']
+            print('PASS: best checkpoint se ponovo učitava i daje inference:', inference_text)
+            """),
+            md("""
+            ## Next Steps
+
+            Faza 5 je završena kada postoje `best.pt`, `latest.pt`, istorija, krive i test
+            rezultat za neviđene govornike. Faza 6 mora koristiti isti `best.pt`, isti test
+            split i isti greedy dekoder; menja se samo ulazna rezolucija, blur ili crop jitter.
+            """),
+        ],
+    )
+
+
 def main() -> None:
     OUTPUT.mkdir(parents=True, exist_ok=True)
     notebooks = {
@@ -818,6 +1248,7 @@ def main() -> None:
         "02_faza_2_ai_speak_preprocessing.ipynb": phase2(),
         "03_faza_3_serbian_dataset.ipynb": phase3(),
         "04_faza_4_transfer_ctc_smoke.ipynb": phase4(),
+        "05_faza_5_baseline_finetuning.ipynb": phase5(),
     }
     for name, value in notebooks.items():
         nbf.write(value, OUTPUT / name)

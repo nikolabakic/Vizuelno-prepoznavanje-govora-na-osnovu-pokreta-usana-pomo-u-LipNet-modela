@@ -2,10 +2,10 @@
 
 Studentski projekat iz predmeta Mašinsko učenje 2. Cilj praktičnog dela je pokretanje postojeće LipNet implementacije, analiza video pipeline-a, manji eksperimenti sa rezolucijom i augmentacijama i fino podešavanje modela na srpskom delu AI-SPEAK korpusa.
 
-Aktivni kod za Faze 0–4 sada prati VIPL-first roadmap: pinovan je tačan upstream
+Aktivni kod za Faze 0–5 sada prati VIPL-first roadmap: pinovan je tačan upstream
 commit, sačuvana je licenca, GRID model/preprocessing su adaptirani minimalno,
 a AI-SPEAK tok koristi VIPL face-alignment mouth frejmove, runtime discovery,
-promenljivi padding i shape-audit transfera težina.
+promenljivi padding, shape-audit transfera težina i reproduktivan baseline fine-tuning.
 
 - [Novi VIPL-first roadmap](docs/analiza-i-roadmap.md)
 - [Evidencija upstream odstupanja](docs/upstream-diff.md)
@@ -18,6 +18,7 @@ promenljivi padding i shape-audit transfera težina.
 3. [`02_faza_2_ai_speak_preprocessing.ipynb`](playground/02_faza_2_ai_speak_preprocessing.ipynb) — AI-SPEAK MP4 u VIPL mouth JPEG foldere (GPU).
 4. [`03_faza_3_serbian_dataset.ipynb`](playground/03_faza_3_serbian_dataset.ipynb) — srpski parser, split, Dataset i promenljivi batch (CPU).
 5. [`04_faza_4_transfer_ctc_smoke.ipynb`](playground/04_faza_4_transfer_ctc_smoke.ipynb) — srpski head, transfer audit i jedan CTC backward (GPU).
+6. [`05_faza_5_baseline_finetuning.ipynb`](playground/05_faza_5_baseline_finetuning.ipynb) — postepeni fine-tuning, resume, validation izbor i test na neviđenim govornicima (GPU).
 
 Svaki notebook je čitljiv odozgo nadole, ima parametrizovane Drive putanje i
 čuva male rezultate/izveštaje na Drive. Notebookovi sa GPU radom samo pripremaju
@@ -29,7 +30,7 @@ komande; u ovom repozitorijumu nisu pokretani CPU zamenom.
 lipnet/                  # VIPL model, Dataset, demo/preprocessing i CTC pomoćni kod
 scripts/prepare_ai_speak.py
 data/splits.py           # eksplicitni speaker-disjoint split
-playground/00_...04_...  # Colab faze
+playground/00_...05_...  # Colab faze
 docs/upstream-diff.md
 ```
 

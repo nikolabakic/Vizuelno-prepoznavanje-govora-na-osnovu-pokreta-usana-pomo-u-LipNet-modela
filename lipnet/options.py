@@ -1,15 +1,15 @@
-"""Shared baseline parameters, close to VIPL ``options.py``.
-
-Phase 5 will consume these values. Phases 0-4 only display or smoke-test them.
-"""
+"""Shared baseline parameters, close to VIPL ``options.py``."""
 
 random_seed = 0
 vid_padding = None  # AI-SPEAK is padded dynamically by variable_length_collate
 txt_padding = None
 batch_size = 2
-base_lr = 2e-5
+base_lr = 2e-5  # backbone after the head-only warmup
+head_lr = 1e-4
 num_workers = 2
-max_epoch = 10000
+max_epoch = 30
+warmup_epochs = 3
+early_stopping_patience = 5
 display = 10
 test_step = 1000
 save_prefix = "weights/LipNet_serbian"

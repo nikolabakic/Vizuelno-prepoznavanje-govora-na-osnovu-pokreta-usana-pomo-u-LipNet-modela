@@ -1,12 +1,12 @@
 # VIPL-first roadmap za LipNet projekat
 
-Datum revizije: 13. avgust 2026.
+Datum revizije: 18. avgust 2026.
 
 ## Status implementacije
 
-Kod i Colab notebookovi za Faze 0–4 napisani su 13. avgusta 2026. Prihvatni
+Kod i Colab notebookovi za Faze 0–5 napisani su do 18. avgusta 2026. Prihvatni
 kriterijumi koji zahtevaju GRID/AI-SPEAK podatke ili GPU namerno još nisu
-označeni kao izvršeni; potvrđuju se redom u `playground/00_...` do `04_...`.
+označeni kao izvršeni; potvrđuju se redom u `playground/00_...` do `05_...`.
 
 | Faza | Kod/notebook | Izvršni status |
 |---:|---|---|
@@ -15,6 +15,7 @@ označeni kao izvršeni; potvrđuju se redom u `playground/00_...` do `04_...`.
 | 2 | VIPL demo MP4 → mouth JPEG + QA/log | spremno za Colab GPU |
 | 3 | srpski Dataset, split i promenljivi collate | spremno posle artefakta Faze 2 |
 | 4 | 29-klasni head, transfer audit i CTC backward | spremno posle Faze 3, Colab GPU |
+| 5 | postepeni fine-tuning, resume, best-WER izbor i test | spremno posle Faze 4, Colab GPU |
 
 ## 1. Nova odluka
 
@@ -228,6 +229,12 @@ vrednosti niti CTC shape grešaka.
 - koristiti upstream horizontalni flip kao jedinu baseline augmentaciju;
 - birati najbolji checkpoint prema validation WER-u;
 - prijaviti i CER i sentence exact match, ali ne menjati kriterijum bez evidencije.
+
+Baseline konfiguracija je zaključana na najviše 30 epoha i batch 2. Prve tri
+epohe treniraju samo novi `FC` head sa stopom `1e-4`; zatim se ceo model odmrzava,
+backbone koristi `2e-5`, a head ostaje na `1e-4`. Early stopping se aktivira posle
+odmrzavanja i prekida nakon pet epoha bez strogo boljeg validation WER-a. Colab
+čuva `latest.pt` za automatski nastavak i `best.pt` za završnu test evaluaciju.
 
 **Prihvatni kriterijum:** sačuvan je reproduktivan checkpoint i inference radi na
 potpuno neviđenim govornicima.

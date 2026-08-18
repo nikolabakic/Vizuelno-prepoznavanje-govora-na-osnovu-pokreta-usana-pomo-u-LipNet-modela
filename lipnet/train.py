@@ -1,22 +1,25 @@
-"""Modernized, small pieces of VIPL ``main.py`` needed through Phase 4.
+"""Modernized VIPL ``main.py`` helpers used through Phase 5.
 
-The full fine-tuning loop belongs to Phase 5.  This module deliberately stops
-at checkpoint transfer, greedy decode, metrics and a verified CTC backward
-step. Source commit: 40209e09c49553c00c25c7d41faa3706aea3c625.
+Phase 5 adds the smallest complete fine-tuning loop around the already verified
+checkpoint transfer, greedy decode and CTC loss. Source commit:
+40209e09c49553c00c25c7d41faa3706aea3c625.
 See ``LICENSE.vipl`` and ``docs/upstream-diff.md``.
 """
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+import random
+from dataclasses import asdict, dataclass
 from pathlib import Path
-from typing import Type
+from typing import Any, Mapping, Sequence, Type
 
 import numpy as np
 import torch
 import torch.nn as nn
+from torch.optim import Adam, Optimizer
+from torch.utils.data import Dataset
 
-from .dataset import MyDataset, SerbianDataset, validate_ctc_batch
+from .dataset import MyDataset, SerbianDataset, minimum_ctc_steps, validate_ctc_batch
 
 
 @dataclass(frozen=True)
@@ -32,6 +35,63 @@ class CheckpointAudit:
             f"missing={list(self.missing_in_checkpoint)}, "
             f"unexpected={list(self.unexpected_in_checkpoint)}"
         )
+
+
+@dataclass(frozen=True)
+class FineTuneConfig:
+    """Serializable Phase-5 baseline configuration."""
+
+    max_epochs: int = 30
+    warmup_epochs: int = 3
+    early_stopping_patience: int = 5
+    batch_size: int = 2
+    backbone_lr: float = 2e-5
+    head_lr: float = 1e-4
+    num_workers: int = 2
+    random_seed: int = 0
+
+
+@dataclass(frozen=True)
+class EpochResult:
+    loss: float
+    wer: float
+    cer: float
+    sentence_exact_match: float
+    samples: int
+    predictions: tuple[str, ...]
+    references: tuple[str, ...]
+
+    def metrics(self) -> dict[str, float]:
+        return {
+            "loss": self.loss,
+            "wer": self.wer,
+            "cer": self.cer,
+            "sentence_exact_match": self.sentence_exact_match,
+        }
+
+
+@dataclass(frozen=True)
+class CTCFilterReport:
+    valid_indices: tuple[int, ...]
+    invalid_indices: tuple[int, ...]
+
+    @property
+    def valid_count(self) -> int:
+        return len(self.valid_indices)
+
+    @property
+    def invalid_count(self) -> int:
+        return len(self.invalid_indices)
+
+
+@dataclass(frozen=True)
+class TrainingState:
+    next_epoch: int
+    best_val_wer: float
+    best_epoch: int
+    epochs_without_improvement: int
+    history: tuple[dict[str, Any], ...]
+    config: dict[str, Any]
 
 
 def _read_state_dict(path: str | Path) -> dict[str, torch.Tensor]:
@@ -92,10 +152,22 @@ def load_vipl_transfer(
 def greedy_decode(
     logits: torch.Tensor,
     dataset_type: Type[MyDataset] = SerbianDataset,
+    output_lengths: torch.Tensor | Sequence[int] | None = None,
 ) -> list[str]:
     """Upstream argmax + repeat/blank collapse for batched ``(B,T,C)`` logits."""
     token_ids = logits.argmax(dim=-1).detach().cpu()
-    return [dataset_type.ctc_arr2txt(row, start=1) for row in token_ids]
+    if output_lengths is None:
+        lengths = [token_ids.shape[1]] * token_ids.shape[0]
+    elif isinstance(output_lengths, torch.Tensor):
+        lengths = output_lengths.detach().cpu().tolist()
+    else:
+        lengths = list(output_lengths)
+    if len(lengths) != token_ids.shape[0]:
+        raise ValueError("Broj output dužina mora odgovarati batch dimenziji")
+    return [
+        dataset_type.ctc_arr2txt(row[: min(int(length), token_ids.shape[1])], start=1)
+        for row, length in zip(token_ids, lengths)
+    ]
 
 
 def reference_text(batch: dict[str, torch.Tensor]) -> list[str]:
@@ -164,3 +236,196 @@ def backward_smoke_step(
             f"Gradijent audit: missing={missing_gradients}, nonfinite={nonfinite_gradients}"
         )
     return float(loss.detach().cpu()), tuple(logits.shape)
+
+
+def set_backbone_trainable(model: nn.Module, trainable: bool) -> tuple[str, ...]:
+    """Freeze/unfreeze every LipNet parameter except the Serbian FC head."""
+    if not hasattr(model, "FC"):
+        raise AttributeError("Model mora da ima LipNet FC head")
+    trainable_names = []
+    for name, parameter in model.named_parameters():
+        parameter.requires_grad = trainable or name.startswith("FC.")
+        if parameter.requires_grad:
+            trainable_names.append(name)
+    return tuple(trainable_names)
+
+
+def build_finetune_optimizer(
+    model: nn.Module,
+    backbone_lr: float = 2e-5,
+    head_lr: float = 1e-4,
+) -> Adam:
+    """Create stable parameter groups that remain identical across resume."""
+    backbone = []
+    head = []
+    for name, parameter in model.named_parameters():
+        (head if name.startswith("FC.") else backbone).append(parameter)
+    if not backbone or not head:
+        raise ValueError("Očekivani su i backbone i FC parametri")
+    return Adam(
+        [
+            {"params": backbone, "lr": backbone_lr, "name": "backbone"},
+            {"params": head, "lr": head_lr, "name": "head"},
+        ]
+    )
+
+
+def scan_ctc_compatibility(dataset: Dataset) -> CTCFilterReport:
+    """Find samples whose targets can align to their real video lengths."""
+    valid = []
+    invalid = []
+    for index in range(len(dataset)):
+        if hasattr(dataset, "ctc_lengths"):
+            video_length, target = dataset.ctc_lengths(index)
+        else:
+            sample = dataset[index]
+            target_length = int(sample["txt_len"])
+            target = sample["txt"][:target_length]
+            video_length = int(sample["vid_len"])
+        if minimum_ctc_steps(target) <= video_length:
+            valid.append(index)
+        else:
+            invalid.append(index)
+    if not valid:
+        raise ValueError("Nijedan uzorak ne zadovoljava CTC ograničenje")
+    return CTCFilterReport(tuple(valid), tuple(invalid))
+
+
+def run_epoch(
+    model: nn.Module,
+    loader: Any,
+    device: torch.device,
+    optimizer: Optimizer | None = None,
+    criterion: nn.CTCLoss | None = None,
+) -> EpochResult:
+    """Train when an optimizer is supplied, otherwise evaluate without gradients."""
+    is_training = optimizer is not None
+    model.train(is_training)
+    criterion = criterion or nn.CTCLoss(blank=0, zero_infinity=False)
+    total_loss = 0.0
+    sample_count = 0
+    predictions: list[str] = []
+    references: list[str] = []
+
+    context = torch.enable_grad() if is_training else torch.no_grad()
+    with context:
+        for batch in loader:
+            device_batch = {
+                key: value.to(device) if key in {"vid", "txt"} else value
+                for key, value in batch.items()
+            }
+            if optimizer is not None:
+                optimizer.zero_grad(set_to_none=True)
+            logits = model(device_batch["vid"])
+            loss = ctc_loss(logits, device_batch, criterion)
+            if not torch.isfinite(loss):
+                raise FloatingPointError(f"CTC loss nije konačan: {loss.item()}")
+            if optimizer is not None:
+                loss.backward()
+                optimizer.step()
+
+            batch_size = int(device_batch["vid"].shape[0])
+            total_loss += float(loss.detach().cpu()) * batch_size
+            sample_count += batch_size
+            predictions.extend(greedy_decode(logits, output_lengths=batch["vid_len"]))
+            references.extend(reference_text(batch))
+
+    if sample_count == 0:
+        raise ValueError("DataLoader nije vratio nijedan batch")
+    metrics = sequence_metrics(predictions, references)
+    return EpochResult(
+        loss=total_loss / sample_count,
+        wer=metrics["wer"],
+        cer=metrics["cer"],
+        sentence_exact_match=metrics["sentence_exact_match"],
+        samples=sample_count,
+        predictions=tuple(predictions),
+        references=tuple(references),
+    )
+
+
+def capture_rng_state() -> dict[str, Any]:
+    state: dict[str, Any] = {
+        "python": random.getstate(),
+        "numpy": np.random.get_state(),
+        "torch": torch.get_rng_state(),
+    }
+    if torch.cuda.is_available():
+        state["cuda"] = torch.cuda.get_rng_state_all()
+    return state
+
+
+def restore_rng_state(state: Mapping[str, Any]) -> None:
+    random.setstate(state["python"])
+    np.random.set_state(state["numpy"])
+    torch.set_rng_state(state["torch"])
+    if "cuda" in state and torch.cuda.is_available():
+        torch.cuda.set_rng_state_all(state["cuda"])
+
+
+def save_training_checkpoint(
+    path: str | Path,
+    model: nn.Module,
+    optimizer: Optimizer,
+    *,
+    epoch: int,
+    best_val_wer: float,
+    best_epoch: int,
+    epochs_without_improvement: int,
+    history: Sequence[Mapping[str, Any]],
+    config: FineTuneConfig | Mapping[str, Any],
+    metadata: Mapping[str, Any] | None = None,
+) -> None:
+    """Atomically save everything needed to resume after a Colab interruption."""
+    destination = Path(path)
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    config_value = asdict(config) if isinstance(config, FineTuneConfig) else dict(config)
+    payload = {
+        "schema_version": 1,
+        "epoch": int(epoch),
+        "model_state_dict": model.state_dict(),
+        "optimizer_state_dict": optimizer.state_dict(),
+        "best_val_wer": float(best_val_wer),
+        "best_epoch": int(best_epoch),
+        "epochs_without_improvement": int(epochs_without_improvement),
+        "history": [dict(item) for item in history],
+        "config": config_value,
+        "rng_state": capture_rng_state(),
+        "metadata": dict(metadata or {}),
+    }
+    temporary = destination.with_suffix(destination.suffix + ".tmp")
+    torch.save(payload, temporary)
+    temporary.replace(destination)
+
+
+def load_training_checkpoint(
+    path: str | Path,
+    model: nn.Module,
+    optimizer: Optimizer,
+    *,
+    restore_rng: bool = True,
+) -> TrainingState:
+    """Restore a Phase-5 checkpoint and return the next epoch to execute."""
+    try:
+        payload = torch.load(path, map_location="cpu", weights_only=False)
+    except TypeError:
+        payload = torch.load(path, map_location="cpu")
+    if payload.get("schema_version") != 1:
+        raise ValueError("Nepoznata Phase-5 checkpoint šema")
+    model.load_state_dict(payload["model_state_dict"], strict=True)
+    optimizer.load_state_dict(payload["optimizer_state_dict"])
+    if restore_rng:
+        restore_rng_state(payload["rng_state"])
+    return TrainingState(
+        next_epoch=int(payload["epoch"]) + 1,
+        best_val_wer=float(payload["best_val_wer"]),
+        best_epoch=int(payload["best_epoch"]),
+        epochs_without_improvement=int(payload["epochs_without_improvement"]),
+        history=tuple(dict(item) for item in payload["history"]),
+        config=dict(payload["config"]),
+    )
+
+
+def validation_wer_improved(current: float, best: float) -> bool:
+    """The baseline checkpoint criterion is strictly lower validation WER."""
+    return bool(np.isfinite(current) and current < best)

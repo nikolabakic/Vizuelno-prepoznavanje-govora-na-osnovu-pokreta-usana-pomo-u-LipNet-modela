@@ -46,6 +46,8 @@ git ls-remote https://github.com/VIPL-Audio-Visual-Speech-Understanding/LipNet-P
 | 3 | tekstualna lista svakog GRID uzorka | verzionisane speaker liste + runtime discovery | speaker-disjoint split bez manifesta | disjunktnost se validira pri importu `data/splits.py` |
 | 4 | fiksni `FC: 512 -> 28` | parametrizovan `FC`, srpski `512 -> 29` | blank + razmak + 27 znakova iz lokalnog korpusa | shape-filtered audit mora preskočiti samo `FC.weight`/`FC.bias` |
 | 4 | CTC u petlji sa `.cuda()` | eksplicitni device i provera minimalnih CTC koraka | savremeni API i rani shape error | jedan mali batch radi forward, konačan loss i backward bez NaN gradijenata |
+| 5 | Adam/CTC petlja, periodični test i model `state_dict` checkpoint | train/validation epohe, stvarne decode dužine i `latest`/`best` potpuni checkpoint | promenljive dužine, Colab prekidi i izbor bez test leakage-a | CPU toy testovi za metrike/resume; Colab prati validation WER i testira samo `best.pt` |
+| 5 | svi parametri optimizovani istim LR-om | 3 head-only epohe, zatim backbone `2e-5` i head `1e-4` | bezbedna adaptacija novog srpskog CTC head-a | notebook prikazuje stage svake epohe i trainable audit pokrivaju testovi |
 
 ## Legacy izolacija
 
