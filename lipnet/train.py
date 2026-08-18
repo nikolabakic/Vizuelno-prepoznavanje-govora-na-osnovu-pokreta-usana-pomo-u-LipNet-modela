@@ -297,42 +297,71 @@ def run_epoch(
     device: torch.device,
     optimizer: Optimizer | None = None,
     criterion: nn.CTCLoss | None = None,
+    accumulation_steps: int = 1,
+    grad_clip_norm: float | None = None,
 ) -> EpochResult:
-    """Train when an optimizer is supplied, otherwise evaluate without gradients."""
     is_training = optimizer is not None
     model.train(is_training)
     criterion = criterion or nn.CTCLoss(blank=0, zero_infinity=False)
+
     total_loss = 0.0
     sample_count = 0
     predictions: list[str] = []
     references: list[str] = []
 
+    if is_training:
+        optimizer.zero_grad(set_to_none=True)
+
     context = torch.enable_grad() if is_training else torch.no_grad()
+
     with context:
-        for batch in loader:
+        for batch_index, batch in enumerate(loader):
             device_batch = {
                 key: value.to(device) if key in {"vid", "txt"} else value
                 for key, value in batch.items()
             }
-            if optimizer is not None:
-                optimizer.zero_grad(set_to_none=True)
+
             logits = model(device_batch["vid"])
             loss = ctc_loss(logits, device_batch, criterion)
+
             if not torch.isfinite(loss):
                 raise FloatingPointError(f"CTC loss nije konačan: {loss.item()}")
+
             if optimizer is not None:
-                loss.backward()
-                optimizer.step()
+                (loss / accumulation_steps).backward()
+
+                should_step = (
+                    (batch_index + 1) % accumulation_steps == 0
+                    or batch_index + 1 == len(loader)
+                )
+
+                if should_step:
+                    if grad_clip_norm is not None:
+                        torch.nn.utils.clip_grad_norm_(
+                            model.parameters(),
+                            grad_clip_norm,
+                        )
+
+                    optimizer.step()
+                    optimizer.zero_grad(set_to_none=True)
 
             batch_size = int(device_batch["vid"].shape[0])
             total_loss += float(loss.detach().cpu()) * batch_size
             sample_count += batch_size
-            predictions.extend(greedy_decode(logits, output_lengths=batch["vid_len"]))
+
+            predictions.extend(
+                greedy_decode(
+                    logits,
+                    output_lengths=batch["vid_len"],
+                )
+            )
             references.extend(reference_text(batch))
 
     if sample_count == 0:
         raise ValueError("DataLoader nije vratio nijedan batch")
+
     metrics = sequence_metrics(predictions, references)
+
     return EpochResult(
         loss=total_loss / sample_count,
         wer=metrics["wer"],
@@ -429,3 +458,63 @@ def load_training_checkpoint(
 def validation_wer_improved(current: float, best: float) -> bool:
     """The baseline checkpoint criterion is strictly lower validation WER."""
     return bool(np.isfinite(current) and current < best)
+
+def build_strong_finetune_optimizer(model: nn.Module) -> Adam:
+    param_groups = {
+        "conv_early": [],
+        "conv3": [],
+        "gru1": [],
+        "gru2": [],
+        "head": [],
+    }
+
+    for name, parameter in model.named_parameters():
+        if name.startswith(("conv1.", "conv2.")):
+            param_groups["conv_early"].append(parameter)
+        elif name.startswith("conv3."):
+            param_groups["conv3"].append(parameter)
+        elif name.startswith("gru1."):
+            param_groups["gru1"].append(parameter)
+        elif name.startswith("gru2."):
+            param_groups["gru2"].append(parameter)
+        elif name.startswith("FC."):
+            param_groups["head"].append(parameter)
+        else:
+            raise ValueError(f"Neočekivan parametar modela: {name}")
+
+    return Adam(
+        [
+            {
+                "params": param_groups["conv_early"],
+                "lr": 2e-6,
+                "initial_lr": 2e-6,
+                "name": "conv_early",
+            },
+            {
+                "params": param_groups["conv3"],
+                "lr": 5e-6,
+                "initial_lr": 5e-6,
+                "name": "conv3",
+            },
+            {
+                "params": param_groups["gru1"],
+                "lr": 1e-5,
+                "initial_lr": 1e-5,
+                "name": "gru1",
+            },
+            {
+                "params": param_groups["gru2"],
+                "lr": 2e-5,
+                "initial_lr": 2e-5,
+                "name": "gru2",
+            },
+            {
+                "params": param_groups["head"],
+                "lr": 5e-5,
+                "initial_lr": 5e-5,
+                "name": "head",
+            },
+        ],
+        weight_decay=0.0,
+        amsgrad=True,
+    )
