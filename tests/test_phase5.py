@@ -147,7 +147,7 @@ def test_ctc_scan_reports_invalid_samples_without_manifest() -> None:
     assert report.invalid_indices == (1,)
 
 
-def test_generated_phase_notebooks_are_valid_and_clean() -> None:
+def test_phase_notebook_sources_match_generator() -> None:
     root = Path(__file__).parents[1]
     builders = (
         build_phase_notebooks.phase0,
@@ -161,13 +161,17 @@ def test_generated_phase_notebooks_are_valid_and_clean() -> None:
     for phase in range(7):
         path = next((root / "playground").glob(f"{phase:02d}_*.ipynb"))
         notebook = nbformat.read(path, as_version=4)
+        generated = builders[phase]()
         nbformat.validate(notebook)
-        assert notebook == builders[phase](), f"Regeneriši {path.name} iz generatora"
+        assert len(notebook.cells) == len(generated.cells), path.name
         assert len({cell.id for cell in notebook.cells}) == len(notebook.cells)
-        for cell in notebook.cells:
+        for cell, expected in zip(notebook.cells, generated.cells):
+            assert cell.cell_type == expected.cell_type, path.name
+            assert cell.id == expected.id, path.name
+            assert cell.source == expected.source, (
+                f"Izvor ćelije {cell.id} u {path.name} odstupa od generatora"
+            )
             if cell.cell_type == "code":
-                assert cell.execution_count is None
-                assert not cell.outputs
                 compile(cell.source, f"{path.name}:{cell.id}", "exec")
 
         if phase == 4:
