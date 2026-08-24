@@ -942,6 +942,10 @@ def phase5() -> nbf.NotebookNode:
 
             Folder ima novu oznaku zato što stari checkpoint-i nisu length-aware i ne smeju
             se nastaviti niti porediti kao da koriste isti trening protokol.
+
+            Početni limit od 30 epoha produžen je na 45 jer je 30. epoha dala novi najbolji
+            validation WER. Pri nastavku je dozvoljeno samo povećanje `max_epochs`; svi ostali
+            hiperparametri moraju ostati identični checkpoint-u.
             """),
             code("""
             import subprocess, sys
@@ -974,7 +978,7 @@ def phase5() -> nbf.NotebookNode:
             assert torch.cuda.is_available(), 'Uključi T4 GPU u Colab Runtime postavkama.'
             DEVICE = torch.device('cuda')
             CONFIG = FineTuneConfig(
-                max_epochs=30,
+                max_epochs=45,
                 warmup_epochs=3,
                 early_stopping_patience=5,
                 batch_size=2,
@@ -1111,7 +1115,7 @@ def phase5() -> nbf.NotebookNode:
             from lipnet.model import LipNet
             from lipnet.train import (
                 build_finetune_optimizer, greedy_decode, load_training_checkpoint,
-                load_vipl_transfer, set_backbone_trainable,
+                load_vipl_transfer, set_backbone_trainable, validate_resume_config,
             )
 
             UPSTREAM_SHA = {UPSTREAM_SHA!r}
@@ -1132,10 +1136,7 @@ def phase5() -> nbf.NotebookNode:
 
             if LATEST_CHECKPOINT.exists():
                 state = load_training_checkpoint(LATEST_CHECKPOINT, model, optimizer)
-                assert state.config == asdict(CONFIG), (
-                    'Resume konfiguracija se razlikuje od CONFIG ćelije: '
-                    f'checkpoint={{state.config}} current={{asdict(CONFIG)}}'
-                )
+                validate_resume_config(state.config, CONFIG)
                 start_epoch = state.next_epoch
                 best_val_wer = state.best_val_wer
                 best_epoch = state.best_epoch

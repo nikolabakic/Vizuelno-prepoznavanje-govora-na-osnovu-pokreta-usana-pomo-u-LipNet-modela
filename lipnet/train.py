@@ -42,7 +42,7 @@ class CheckpointAudit:
 class FineTuneConfig:
     """Serializable Phase-5 baseline configuration."""
 
-    max_epochs: int = 30
+    max_epochs: int = 45
     warmup_epochs: int = 3
     early_stopping_patience: int = 5
     batch_size: int = 2
@@ -50,6 +50,40 @@ class FineTuneConfig:
     head_lr: float = 1e-4
     num_workers: int = 2
     random_seed: int = 0
+
+
+def validate_resume_config(
+    checkpoint_config: Mapping[str, Any],
+    current_config: FineTuneConfig | Mapping[str, Any],
+) -> None:
+    """Allow a resumed run to increase only its maximum epoch limit."""
+    saved = dict(checkpoint_config)
+    current = (
+        asdict(current_config)
+        if isinstance(current_config, FineTuneConfig)
+        else dict(current_config)
+    )
+    try:
+        saved_max_epochs = int(saved.pop("max_epochs"))
+        current_max_epochs = int(current.pop("max_epochs"))
+    except KeyError as exc:
+        raise ValueError("Resume konfiguracija nema max_epochs") from exc
+
+    if saved != current:
+        changed = sorted(
+            key
+            for key in saved.keys() | current.keys()
+            if saved.get(key) != current.get(key)
+        )
+        raise ValueError(
+            "Resume sme da promeni samo max_epochs; "
+            f"razlikuju se: {changed}"
+        )
+    if current_max_epochs < saved_max_epochs:
+        raise ValueError(
+            "Resume ne sme da smanji max_epochs: "
+            f"checkpoint={saved_max_epochs}, current={current_max_epochs}"
+        )
 
 
 @dataclass(frozen=True)

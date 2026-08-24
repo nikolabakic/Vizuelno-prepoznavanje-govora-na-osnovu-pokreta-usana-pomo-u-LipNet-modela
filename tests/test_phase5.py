@@ -5,6 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 
 import nbformat
+import pytest
 import torch
 import torch.nn as nn
 
@@ -19,6 +20,7 @@ from lipnet.train import (
     scan_ctc_compatibility,
     sequence_metrics,
     set_backbone_trainable,
+    validate_resume_config,
     validation_wer_improved,
 )
 
@@ -114,7 +116,24 @@ def test_checkpoint_round_trip_restores_training_and_rng_state(tmp_path: Path) -
     assert state.best_epoch == 0
     assert state.best_val_wer == 0.75
     assert list(state.history) == history
-    assert state.config["max_epochs"] == 30
+    assert state.config["max_epochs"] == 45
+
+
+def test_resume_config_allows_only_increasing_max_epochs() -> None:
+    checkpoint_config = FineTuneConfig(max_epochs=30)
+    validate_resume_config(
+        checkpoint_config.__dict__, FineTuneConfig(max_epochs=45)
+    )
+
+    with pytest.raises(ValueError, match="smanji max_epochs"):
+        validate_resume_config(
+            FineTuneConfig(max_epochs=45).__dict__, FineTuneConfig(max_epochs=30)
+        )
+    with pytest.raises(ValueError, match="backbone_lr"):
+        validate_resume_config(
+            checkpoint_config.__dict__,
+            FineTuneConfig(max_epochs=45, backbone_lr=1e-5),
+        )
 
 
 def test_best_checkpoint_criterion_is_strict_validation_wer() -> None:

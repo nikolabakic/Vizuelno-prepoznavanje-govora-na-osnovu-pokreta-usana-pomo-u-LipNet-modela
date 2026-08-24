@@ -232,11 +232,14 @@ vrednosti niti CTC shape grešaka.
 - birati najbolji checkpoint prema validation WER-u;
 - prijaviti i CER i sentence exact match, ali ne menjati kriterijum bez evidencije.
 
-Baseline konfiguracija je zaključana na najviše 30 epoha i batch 2. Prve tri
-epohe treniraju samo novi `FC` head sa stopom `1e-4`; zatim se ceo model odmrzava,
-backbone koristi `2e-5`, a head ostaje na `1e-4`. Early stopping se aktivira posle
-odmrzavanja i prekida nakon pet epoha bez strogo boljeg validation WER-a. Colab
-čuva `latest.pt` za automatski nastavak i `best.pt` za završnu test evaluaciju.
+Baseline je prvo pokrenut sa limitom od 30 epoha i batch 2. Pošto je 30. epoha
+dala novi najbolji validation WER, limit je kontrolisano produžen na 45; resume
+dozvoljava samo povećanje `max_epochs`, dok svi ostali hiperparametri ostaju
+zaključani. Prve tri epohe treniraju samo novi `FC` head sa stopom `1e-4`; zatim
+se ceo model odmrzava, backbone koristi `2e-5`, a head ostaje na `1e-4`. Early
+stopping se aktivira posle odmrzavanja i prekida nakon pet epoha bez strogo boljeg
+validation WER-a. Colab čuva `latest.pt` za automatski nastavak i `best.pt` za
+završnu test evaluaciju.
 
 **Prihvatni kriterijum:** sačuvan je reproduktivan checkpoint i inference radi na
 potpuno neviđenim govornicima.
