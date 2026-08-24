@@ -48,10 +48,29 @@ def notebook(title: str, cells: list, *, gpu: bool = False) -> nbf.NotebookNode:
     return value
 
 
-def repo_setup_cell() -> str:
+def repo_setup_cell(*, refresh_imports: bool = False) -> str:
+    if not refresh_imports:
+        return f"""
+        import os
+        import subprocess
+        from pathlib import Path
+
+        REPO_URL = {REPO_URL!r}
+        REPO = Path('/content/lipnet-serbian')
+        if not (REPO / 'lipnet').exists():
+            subprocess.run(['git', 'clone', REPO_URL, str(REPO)], check=True)
+        else:
+            subprocess.run(['git', '-C', str(REPO), 'pull', '--ff-only'], check=True)
+        os.chdir(REPO)
+        print('Repo:', REPO)
+        print('Commit:', subprocess.check_output(['git', 'rev-parse', 'HEAD'], text=True).strip())
+        """
+
     return f"""
+    import importlib
     import os
     import subprocess
+    import sys
     from pathlib import Path
 
     REPO_URL = {REPO_URL!r}
@@ -61,8 +80,25 @@ def repo_setup_cell() -> str:
     else:
         subprocess.run(['git', '-C', str(REPO), 'pull', '--ff-only'], check=True)
     os.chdir(REPO)
+
+    # A git pull updates source files, but an active Colab kernel can still hold
+    # old lipnet modules in sys.modules.  Clear only this project's modules so
+    # all later imports use one coherent checkout.
+    stale_modules = [
+        name for name in sys.modules
+        if name == 'lipnet' or name.startswith('lipnet.')
+    ]
+    for name in stale_modules:
+        del sys.modules[name]
+    repo_path = str(REPO)
+    sys.path[:] = [entry for entry in sys.path if entry != repo_path]
+    sys.path.insert(0, repo_path)
+    importlib.invalidate_caches()
+
     print('Repo:', REPO)
     print('Commit:', subprocess.check_output(['git', 'rev-parse', 'HEAD'], text=True).strip())
+    if stale_modules:
+        print('Osveženi Python moduli:', ', '.join(sorted(stale_modules)))
     """
 
 
@@ -916,8 +952,9 @@ def phase5() -> nbf.NotebookNode:
                 check=True,
             )
             """),
-            code(repo_setup_cell()),
+            code(repo_setup_cell(refresh_imports=True)),
             code("""
+            import inspect
             import json
             import random
             from dataclasses import asdict
@@ -926,8 +963,14 @@ def phase5() -> nbf.NotebookNode:
             import numpy as np
             import torch
 
+            from lipnet.model import LipNet
             from lipnet.train import FineTuneConfig
 
+            forward_parameters = inspect.signature(LipNet.forward).parameters
+            assert 'lengths' in forward_parameters, (
+                'Učitana LipNet klasa nije length-aware. Ponovo pokreni Setup ćelije; '
+                f'model={inspect.getfile(LipNet)}, signature={inspect.signature(LipNet.forward)}'
+            )
             assert torch.cuda.is_available(), 'Uključi T4 GPU u Colab Runtime postavkama.'
             DEVICE = torch.device('cuda')
             CONFIG = FineTuneConfig(
@@ -946,6 +989,7 @@ def phase5() -> nbf.NotebookNode:
             torch.cuda.manual_seed_all(CONFIG.random_seed)
             torch.backends.cudnn.benchmark = False
             torch.backends.cudnn.deterministic = True
+            print('LipNet:', inspect.getfile(LipNet), inspect.signature(LipNet.forward))
             print('GPU:', torch.cuda.get_device_name(0))
             print('Konfiguracija:', json.dumps(asdict(CONFIG), indent=2))
             """),
@@ -1135,6 +1179,9 @@ def phase5() -> nbf.NotebookNode:
                 },
             }
 
+            assert 'lengths' in inspect.signature(model.forward).parameters, (
+                'Model u memoriji nije length-aware; pokreni notebook ponovo od Setup sekcije.'
+            )
             for epoch in range(start_epoch, CONFIG.max_epochs):
                 backbone_trainable = epoch >= CONFIG.warmup_epochs
                 set_backbone_trainable(model, backbone_trainable)

@@ -191,3 +191,11 @@ def test_phase_notebook_sources_match_generator() -> None:
     )
     for heading in ("## Goal", "## Setup", "## Steps", "## Checks", "## Next Steps"):
         assert heading in headings
+
+    phase5_code = "\n".join(
+        cell.source for cell in phase5.cells if cell.cell_type == "code"
+    )
+    assert "if name == 'lipnet' or name.startswith('lipnet.')" in phase5_code
+    assert "sys.path.insert(0, repo_path)" in phase5_code
+    assert "'lengths' in forward_parameters" in phase5_code
+    assert "'lengths' in inspect.signature(model.forward).parameters" in phase5_code
