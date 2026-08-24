@@ -2,8 +2,10 @@
 
 Adapted from VIPL ``dataset.py`` at commit
 ``40209e09c49553c00c25c7d41faa3706aea3c625``.  Frame loading,
-normalization, text conversion, greedy CTC collapse, WER and CER keep the
-upstream behavior.  Local changes are documented in ``docs/upstream-diff.md``.
+normalization, text conversion, greedy CTC collapse, and per-sentence WER/CER
+helpers keep the upstream behavior. Phase-5 reporting aggregates edit counts at
+corpus level in ``lipnet.train.sequence_metrics``. Local changes are documented
+in ``docs/upstream-diff.md``.
 See ``LICENSE.vipl``.
 """
 

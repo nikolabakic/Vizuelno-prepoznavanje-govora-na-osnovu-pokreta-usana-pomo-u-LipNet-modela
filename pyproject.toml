@@ -8,6 +8,7 @@ dependencies = [
     "editdistance>=0.8.1",
     "numpy>=1.26",
     "opencv-python-headless>=4.10",
+    "torch>=2.2",
 ]
 
 [project.optional-dependencies]

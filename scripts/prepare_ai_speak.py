@@ -32,6 +32,58 @@ class ClipResult:
     dropped_frames: int
 
 
+def _numeric_frames(folder: Path) -> list[Path]:
+    frames = [path for path in folder.glob("*.jpg") if path.stem.isdigit()]
+    return sorted(frames, key=lambda path: int(path.stem))
+
+
+def restore_checkpoint_archives(checkpoint_dir: Path, output_root: Path) -> int:
+    """Restore frame blocks and their real preprocessing metadata."""
+    archives = sorted(checkpoint_dir.glob("chunk_*.zip"))
+    if not archives:
+        return 0
+
+    restored: dict[tuple[str, str], ClipResult] = {}
+    previous_log = output_root / "preprocessing.jsonl"
+    if previous_log.exists():
+        for line in previous_log.read_text(encoding="utf-8").splitlines():
+            if line.strip():
+                payload = json.loads(line)
+                result = ClipResult(**payload)
+                restored[(result.speaker, result.sample_id)] = result
+
+    output_root_resolved = output_root.resolve()
+    for index, checkpoint in enumerate(archives, start=1):
+        with zipfile.ZipFile(checkpoint) as archive:
+            try:
+                result_lines = archive.read("_checkpoint/results.jsonl").decode("utf-8")
+            except KeyError as exc:
+                raise ValueError(f"Checkpoint nema results.jsonl: {checkpoint}") from exc
+            for line in result_lines.splitlines():
+                if line.strip():
+                    payload = json.loads(line)
+                    result = ClipResult(**payload)
+                    restored[(result.speaker, result.sample_id)] = result
+            for member in archive.infolist():
+                if member.is_dir() or member.filename.startswith("_checkpoint/"):
+                    continue
+                destination = (output_root / member.filename).resolve()
+                if not destination.is_relative_to(output_root_resolved):
+                    raise ValueError(f"Nebezbedna putanja u {checkpoint}: {member.filename}")
+                archive.extract(member, output_root)
+        if index % 25 == 0 or index == len(archives):
+            print(f"Vraćeni checkpoint-i: {index}/{len(archives)}", flush=True)
+
+    previous_log.write_text(
+        "".join(
+            json.dumps(asdict(restored[key]), ensure_ascii=False) + "\n"
+            for key in sorted(restored)
+        ),
+        encoding="utf-8",
+    )
+    return len(restored)
+
+
 def write_checkpoint(
     block: list[ClipResult],
     failures: list[str],
@@ -63,8 +115,17 @@ def write_checkpoint(
 
 
 def discover_pairs(corpus_root: Path) -> list[tuple[str, str, Path, Path]]:
-    videos = {path.stem: path for path in corpus_root.glob("spk*/ser/video_a/*.mp4")}
-    annotations = {path.stem: path for path in corpus_root.glob("spk*/alignment/*.align")}
+    def keyed(paths: list[Path], speaker_parent: int) -> dict[tuple[str, str], Path]:
+        values: dict[tuple[str, str], Path] = {}
+        for path in paths:
+            key = (path.parents[speaker_parent].name, path.stem)
+            if key in values:
+                raise ValueError(f"Dupliran uzorak {key}: {values[key]} i {path}")
+            values[key] = path
+        return values
+
+    videos = keyed(list(corpus_root.glob("spk*/ser/video_a/*.mp4")), 2)
+    annotations = keyed(list(corpus_root.glob("spk*/alignment/*.align")), 1)
     if not videos:
         raise ValueError(f"Nema spk*/ser/video_a/*.mp4 ispod {corpus_root}")
     missing_annotations = sorted(videos.keys() - annotations.keys())
@@ -74,11 +135,9 @@ def discover_pairs(corpus_root: Path) -> list[tuple[str, str, Path, Path]]:
             f"Neupareni ulazi: bez ALIGN={missing_annotations[:5]}, bez MP4={missing_videos[:5]}"
         )
     pairs = []
-    for sample_id in sorted(videos):
-        speaker = videos[sample_id].parents[2].name
-        if annotations[sample_id].parent.parent.name != speaker:
-            raise ValueError(f"Speaker folderi se ne slažu za {sample_id}")
-        pairs.append((sample_id, speaker, videos[sample_id], annotations[sample_id]))
+    for speaker, sample_id in sorted(videos):
+        key = (speaker, sample_id)
+        pairs.append((sample_id, speaker, videos[key], annotations[key]))
     return pairs
 
 
@@ -123,32 +182,44 @@ def run(args: argparse.Namespace) -> None:
         pairs = [pair for pair in pairs if pair[1] in allowed]
     if args.limit is not None:
         pairs = pairs[: args.limit]
+    if not pairs:
+        raise ValueError("Filteri nisu ostavili nijedan MP4/ALIGN par za obradu")
     print(f"Pronađeno {len(pairs)} uparenih klipova", flush=True)
 
-    previous_results: dict[str, ClipResult] = {}
+    if args.resume and args.checkpoint_dir:
+        restored = restore_checkpoint_archives(args.checkpoint_dir.resolve(), output_root)
+        if restored:
+            print(f"Vraćeno rezultata sa Drive checkpoint-a: {restored}", flush=True)
+
+    previous_results: dict[tuple[str, str], ClipResult] = {}
     previous_log = output_root / "preprocessing.jsonl"
     if args.resume and previous_log.exists():
         for line in previous_log.read_text(encoding="utf-8").splitlines():
             if line.strip():
                 payload = json.loads(line)
-                previous_results[payload["sample_id"]] = ClipResult(**payload)
+                result = ClipResult(**payload)
+                previous_results[(result.speaker, result.sample_id)] = result
 
     aligner = make_face_aligner(device=args.device, face_detector=args.face_detector)
     results: list[ClipResult] = []
     checkpoint_results: list[ClipResult] = []
     failures: list[str] = []
+    failure_keys: list[tuple[str, str]] = []
+    checkpoint_failures: list[str] = []
     checkpoint_start = 1
     for index, (sample_id, speaker, video_path, _) in enumerate(pairs, start=1):
         destination = output_root / speaker / "video" / "video_a" / sample_id
         try:
-            if args.resume and list(destination.glob("*.jpg")):
-                result = previous_results.get(sample_id)
-                if result is None:
-                    frame_count = len(list(destination.glob("*.jpg")))
-                    result = ClipResult(
-                        sample_id, speaker, str(video_path), str(destination), frame_count,
-                        frame_count, 0,
-                    )
+            previous = previous_results.get((speaker, sample_id))
+            frame_count = len(_numeric_frames(destination))
+            if (
+                args.resume
+                and previous is not None
+                and frame_count > 0
+                and frame_count == previous.landmark_frames
+                and previous.decoded_frames >= previous.landmark_frames
+            ):
+                result = previous
             else:
                 processed = preprocess_video(video_path, aligner)
                 write_mouth_jpegs(processed.frames, destination)
@@ -166,6 +237,8 @@ def run(args: argparse.Namespace) -> None:
         except Exception as exc:  # keep the corpus job alive and make failures explicit
             message = f"{sample_id}\t{type(exc).__name__}: {exc}"
             failures.append(message)
+            failure_keys.append((speaker, sample_id))
+            checkpoint_failures.append(message)
             print(f"NEUSPEH {message}", flush=True)
         if index % args.report_every == 0 or index == len(pairs):
             print(f"Preprocessing {index}/{len(pairs)} | uspešno={len(results)} | neuspešno={len(failures)}", flush=True)
@@ -174,14 +247,23 @@ def run(args: argparse.Namespace) -> None:
         ):
             write_checkpoint(
                 checkpoint_results,
-                failures,
+                checkpoint_failures,
                 output_root,
                 args.checkpoint_dir,
                 checkpoint_start,
                 index,
             )
             checkpoint_results = []
+            checkpoint_failures = []
             checkpoint_start = index + 1
+
+    result_ids = [(result.speaker, result.sample_id) for result in results]
+    failure_ids = failure_keys
+    if len(result_ids) != len(set(result_ids)) or len(failure_ids) != len(set(failure_ids)):
+        raise RuntimeError("Duplirani uzorci u završnom preprocessing auditu")
+    expected_ids = {(speaker, sample_id) for sample_id, speaker, _, _ in pairs}
+    if set(result_ids) | set(failure_ids) != expected_ids or set(result_ids) & set(failure_ids):
+        raise RuntimeError("Završni preprocessing audit ne pokriva tačno sve ulazne klipove")
 
     # JSONL is a runtime/audit log only. Dataset discovery never reads it.
     log_path = output_root / "preprocessing.jsonl"

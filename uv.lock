@@ -560,6 +560,7 @@ dependencies = [
     { name = "numpy", version = "2.5.2", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.12'" },
     { name = "opencv-python-headless", version = "4.11.0.86", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
     { name = "opencv-python-headless", version = "5.0.0.93", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11'" },
+    { name = "torch" },
 ]
 
 [package.optional-dependencies]
@@ -580,6 +581,7 @@ requires-dist = [
     { name = "face-alignment", marker = "extra == 'colab'", specifier = "==1.4.1" },
     { name = "numpy", specifier = ">=1.26" },
     { name = "opencv-python-headless", specifier = ">=4.10" },
+    { name = "torch", specifier = ">=2.2" },
 ]
 provides-extras = ["colab"]
 

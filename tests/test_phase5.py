@@ -8,6 +8,7 @@ import nbformat
 import torch
 import torch.nn as nn
 
+from scripts import build_phase_notebooks
 from lipnet.train import (
     FineTuneConfig,
     build_finetune_optimizer,
@@ -16,6 +17,7 @@ from lipnet.train import (
     run_epoch,
     save_training_checkpoint,
     scan_ctc_compatibility,
+    sequence_metrics,
     set_backbone_trainable,
     validation_wer_improved,
 )
@@ -27,7 +29,11 @@ class ToyCTCModel(nn.Module):
         self.backbone = nn.Conv3d(1, 2, kernel_size=1)
         self.FC = nn.Linear(2, 29)
 
-    def forward(self, video: torch.Tensor) -> torch.Tensor:
+    def forward(
+        self,
+        video: torch.Tensor,
+        lengths: torch.Tensor | None = None,
+    ) -> torch.Tensor:
         features = self.backbone(video).mean(dim=(-1, -2)).transpose(1, 2)
         return self.FC(features)
 
@@ -117,6 +123,16 @@ def test_best_checkpoint_criterion_is_strict_validation_wer() -> None:
     assert not validation_wer_improved(0.6, 0.5)
 
 
+def test_sequence_metrics_use_corpus_denominators() -> None:
+    metrics = sequence_metrics(
+        predictions=["a", "a b c"],
+        references=["a b", "a b c"],
+    )
+    assert metrics["wer"] == 1 / 5
+    assert metrics["cer"] == 2 / 8
+    assert metrics["sentence_exact_match"] == 0.5
+
+
 def test_ctc_scan_reports_invalid_samples_without_manifest() -> None:
     class LengthOnlyDataset:
         def __len__(self) -> int:
@@ -131,12 +147,43 @@ def test_ctc_scan_reports_invalid_samples_without_manifest() -> None:
     assert report.invalid_indices == (1,)
 
 
-def test_generated_phase5_notebook_is_valid() -> None:
-    path = Path(__file__).parents[1] / "playground/05_faza_5_baseline_finetuning.ipynb"
-    notebook = nbformat.read(path, as_version=4)
-    nbformat.validate(notebook)
+def test_generated_phase_notebooks_are_valid_and_clean() -> None:
+    root = Path(__file__).parents[1]
+    builders = (
+        build_phase_notebooks.phase0,
+        build_phase_notebooks.phase1,
+        build_phase_notebooks.phase2,
+        build_phase_notebooks.phase3,
+        build_phase_notebooks.phase4,
+        build_phase_notebooks.phase5,
+        build_phase_notebooks.phase6,
+    )
+    for phase in range(7):
+        path = next((root / "playground").glob(f"{phase:02d}_*.ipynb"))
+        notebook = nbformat.read(path, as_version=4)
+        nbformat.validate(notebook)
+        assert notebook == builders[phase](), f"Regeneriši {path.name} iz generatora"
+        assert len({cell.id for cell in notebook.cells}) == len(notebook.cells)
+        for cell in notebook.cells:
+            if cell.cell_type == "code":
+                assert cell.execution_count is None
+                assert not cell.outputs
+                compile(cell.source, f"{path.name}:{cell.id}", "exec")
+
+        if phase == 4:
+            code_source = "\n".join(
+                cell.source for cell in notebook.cells if cell.cell_type == "code"
+            )
+            assert (
+                "set(audit.skipped_shape) == {'FC.weight', 'FC.bias'}"
+                in code_source
+            )
+
+    phase5 = nbformat.read(
+        root / "playground/05_faza_5_baseline_finetuning.ipynb", as_version=4
+    )
     headings = "\n".join(
-        cell.source for cell in notebook.cells if cell.cell_type == "markdown"
+        cell.source for cell in phase5.cells if cell.cell_type == "markdown"
     )
     for heading in ("## Goal", "## Setup", "## Steps", "## Checks", "## Next Steps"):
         assert heading in headings

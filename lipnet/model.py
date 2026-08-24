@@ -16,6 +16,7 @@ import math
 import torch
 import torch.nn as nn
 import torch.nn.init as init
+from torch.nn.utils.rnn import PackedSequence, pack_padded_sequence, pad_packed_sequence
 
 
 class LipNet(torch.nn.Module):
@@ -82,7 +83,11 @@ class LipNet(torch.nn.Module):
                     recurrent_layer.bias_ih_l0_reverse[offset : offset + 256], 0
                 )
 
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
+    def forward(
+        self,
+        x: torch.Tensor,
+        lengths: torch.Tensor | None = None,
+    ) -> torch.Tensor:
         if x.ndim != 5:
             raise ValueError(f"Očekivan (B,C,T,H,W) ulaz, dobijeno {tuple(x.shape)}")
         if x.shape[1] != 3 or x.shape[-2:] != (64, 128):
@@ -91,9 +96,31 @@ class LipNet(torch.nn.Module):
                 f"dobijeno {tuple(x.shape)}"
             )
 
+        recurrent_lengths = None
+        if lengths is not None:
+            recurrent_lengths = torch.as_tensor(lengths, dtype=torch.long, device="cpu")
+            if recurrent_lengths.ndim != 1 or recurrent_lengths.numel() != x.shape[0]:
+                raise ValueError(
+                    "lengths mora biti jednodimenzioni tensor sa jednom dužinom po uzorku"
+                )
+            if torch.any(recurrent_lengths <= 0) or torch.any(recurrent_lengths > x.shape[2]):
+                raise ValueError(
+                    f"Neispravne video dužine {recurrent_lengths.tolist()} za T={x.shape[2]}"
+                )
+
+        def mask_padded_time(value: torch.Tensor) -> torch.Tensor:
+            if recurrent_lengths is None:
+                return value
+            time = torch.arange(value.shape[2], device=value.device).unsqueeze(0)
+            valid = time < recurrent_lengths.to(value.device).unsqueeze(1)
+            return value * valid[:, None, :, None, None]
+
         x = self.pool1(self.dropout3d(self.relu(self.conv1(x))))
+        x = mask_padded_time(x)
         x = self.pool2(self.dropout3d(self.relu(self.conv2(x))))
+        x = mask_padded_time(x)
         x = self.pool3(self.dropout3d(self.relu(self.conv3(x))))
+        x = mask_padded_time(x)
 
         # (B,C,T,H,W) -> (T,B,C,H,W) -> (T,B,C*H*W)
         x = x.permute(2, 0, 1, 3, 4).contiguous()
@@ -101,10 +128,28 @@ class LipNet(torch.nn.Module):
 
         self.gru1.flatten_parameters()
         self.gru2.flatten_parameters()
-        x, _ = self.gru1(x)
-        x = self.dropout(x)
-        x, _ = self.gru2(x)
-        x = self.dropout(x)
+        if recurrent_lengths is None:
+            x, _ = self.gru1(x)
+            x = self.dropout(x)
+            x, _ = self.gru2(x)
+            x = self.dropout(x)
+        else:
+            packed = pack_padded_sequence(x, recurrent_lengths, enforce_sorted=False)
+            packed, _ = self.gru1(packed)
+            packed = PackedSequence(
+                self.dropout(packed.data),
+                packed.batch_sizes,
+                packed.sorted_indices,
+                packed.unsorted_indices,
+            )
+            packed, _ = self.gru2(packed)
+            packed = PackedSequence(
+                self.dropout(packed.data),
+                packed.batch_sizes,
+                packed.sorted_indices,
+                packed.unsorted_indices,
+            )
+            x, _ = pad_packed_sequence(packed, total_length=x.shape[0])
 
         x = self.FC(x)
         return x.permute(1, 0, 2).contiguous()

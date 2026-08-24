@@ -31,15 +31,17 @@ def code(text: str):
     return nbf.v4.new_code_cell(dedent(text).strip() + "\n")
 
 
-def notebook(title: str, cells: list) -> nbf.NotebookNode:
+def notebook(title: str, cells: list, *, gpu: bool = False) -> nbf.NotebookNode:
+    metadata = {
+        "colab": {"name": title, "provenance": []},
+        "kernelspec": {"display_name": "Python 3", "language": "python", "name": "python3"},
+        "language_info": {"name": "python", "version": "3.x"},
+    }
+    if gpu:
+        metadata["accelerator"] = "GPU"
     value = nbf.v4.new_notebook(
         cells=[md(f"# {title}")] + cells,
-        metadata={
-            "accelerator": "GPU",
-            "colab": {"name": title, "provenance": []},
-            "kernelspec": {"display_name": "Python 3", "language": "python", "name": "python3"},
-            "language_info": {"name": "python", "version": "3.x"},
-        },
+        metadata=metadata,
     )
     for index, cell in enumerate(value.cells):
         cell.id = f"cell-{index:02d}"
@@ -56,6 +58,8 @@ def repo_setup_cell() -> str:
     REPO = Path('/content/lipnet-serbian')
     if not (REPO / 'lipnet').exists():
         subprocess.run(['git', 'clone', REPO_URL, str(REPO)], check=True)
+    else:
+        subprocess.run(['git', '-C', str(REPO), 'pull', '--ff-only'], check=True)
     os.chdir(REPO)
     print('Repo:', REPO)
     print('Commit:', subprocess.check_output(['git', 'rev-parse', 'HEAD'], text=True).strip())
@@ -204,6 +208,8 @@ def phase1() -> nbf.NotebookNode:
             DEVICE = torch.device('cuda')
             torch.manual_seed(0)
             torch.cuda.manual_seed_all(0)
+            torch.backends.cudnn.benchmark = False
+            torch.backends.cudnn.deterministic = True
             print('PyTorch:', torch.__version__)
             print('GPU:', torch.cuda.get_device_name(0))
 
@@ -365,6 +371,7 @@ def phase1() -> nbf.NotebookNode:
             modela daju isti tekst. Sačuvaj prikaz mouth ROI-a i `phase1_result.json`.
             """),
         ],
+        gpu=True,
     )
 
 
@@ -439,18 +446,8 @@ def phase2() -> nbf.NotebookNode:
             print('Korpus:', CORPUS_ROOT)
             print('MP4/ALIGN:', len(videos), len(annotations))
 
-            # Restore every completed block after a fresh/disconnected runtime.
             CHECKPOINT_DIR.mkdir(parents=True, exist_ok=True)
-            checkpoint_archives = sorted(CHECKPOINT_DIR.glob('chunk_*.zip'))
-            if checkpoint_archives and not next(OUTPUT_ROOT.glob('spk*/video/video_a/*'), None):
-                OUTPUT_ROOT.mkdir(parents=True, exist_ok=True)
-                for index, checkpoint in enumerate(checkpoint_archives, start=1):
-                    with zipfile.ZipFile(checkpoint) as archive:
-                        archive.extractall(OUTPUT_ROOT)
-                    if index % 25 == 0 or index == len(checkpoint_archives):
-                        print(f'Vraćeni checkpoint-i: {index}/{len(checkpoint_archives)}')
-            restored_samples = len(list(OUTPUT_ROOT.glob('spk*/video/video_a/*')))
-            print('Vraćeno/zatečeno gotovih sample foldera:', restored_samples)
+            print('Drive checkpoint folder:', CHECKPOINT_DIR)
             """),
             md("### 2. Prvo uradi jedan GPU smoke primer i upstream `_load_vid` proveru"),
             code("""
@@ -492,21 +489,64 @@ def phase2() -> nbf.NotebookNode:
             else:
                 print('RUN_FULL_PREPROCESSING=False: ceo GPU posao je namerno preskočen.')
             """),
-            md("## Checks\n\n### 4. Vizuelno pregledaj normalne i granične klipove svakog govornika"),
+            md("## Checks\n\n### 4. Proveri potpunost i vizuelno pregledaj granične klipove"),
             code("""
+            import json
             from IPython.display import Image, display
 
             QA_PATH = OUTPUT_ROOT / 'qa_mouth_crops.jpg'
             FAILURE_LOG = OUTPUT_ROOT / 'failed_clips.log'
+            PREPROCESSING_LOG = OUTPUT_ROOT / 'preprocessing.jsonl'
             assert QA_PATH.exists(), 'Puna obrada nije napravljena ili nije završena.'
+            records = [
+                json.loads(line)
+                for line in PREPROCESSING_LOG.read_text(encoding='utf-8').splitlines()
+                if line.strip()
+            ]
+            failures = [
+                line for line in FAILURE_LOG.read_text(encoding='utf-8').splitlines()
+                if line.strip()
+            ]
+            success_ids = {record['sample_id'] for record in records}
+            failure_ids = {line.split('\\t', 1)[0] for line in failures}
+            input_ids = {path.stem for path in videos}
+            assert not (success_ids & failure_ids)
+            assert success_ids | failure_ids == input_ids
+            assert len(records) == len(success_ids)
+            assert all(record['landmark_frames'] > 0 for record in records)
+            assert all(
+                record['decoded_frames'] == record['landmark_frames'] + record['dropped_frames']
+                for record in records
+            )
+            phase2_audit = {
+                'phase': 2,
+                'face_detector': 'blazeface',
+                'torch_version': torch.__version__,
+                'gpu': torch.cuda.get_device_name(0),
+                'input_pairs': len(videos),
+                'successful_clips': len(records),
+                'failed_clips': len(failures),
+                'clips_with_dropped_frames': sum(
+                    record['dropped_frames'] > 0 for record in records
+                ),
+                'decoded_frames': sum(record['decoded_frames'] for record in records),
+                'landmark_frames': sum(record['landmark_frames'] for record in records),
+            }
+            (OUTPUT_ROOT / 'phase2_audit.json').write_text(
+                json.dumps(phase2_audit, indent=2, ensure_ascii=False) + '\\n',
+                encoding='utf-8',
+            )
             display(Image(filename=str(QA_PATH)))
-            failures = FAILURE_LOG.read_text(encoding='utf-8').strip().splitlines()
-            print('Neuspeli klipovi:', len([line for line in failures if line]))
+            print('Uspešni klipovi:', len(records), '/', len(videos))
+            print('Neuspeli klipovi:', len(failures))
+            print('Klipovi sa ispuštenim frejmovima:', sum(r['dropped_frames'] > 0 for r in records))
             print('\\n'.join(failures[:20]) if failures else 'Nema neuspelih klipova.')
             print('Ručno potvrdi: usne su u centru, nisu odsečene i crop je stabilan.')
             """),
             md("### 5. Arhiviraj JPEG foldere i logove na Drive"),
             code("""
+            MANUAL_QA_PASSED = False  # promeni na True tek nakon pregleda prikazane QA slike
+            assert MANUAL_QA_PASSED, 'Ručno pregledaj QA sliku, pa potvrdi MANUAL_QA_PASSED=True.'
             if RUN_FULL_PREPROCESSING:
                 archive_base = Path('/content/ai_speak_lip')
                 archive = Path(shutil.make_archive(str(archive_base), 'zip', root_dir=OUTPUT_ROOT))
@@ -522,6 +562,7 @@ def phase2() -> nbf.NotebookNode:
             ulaz u trening.
             """),
         ],
+        gpu=True,
     )
 
 
@@ -592,7 +633,7 @@ def phase3() -> nbf.NotebookNode:
             assert not (split_sets[0] & split_sets[1] | split_sets[0] & split_sets[2] | split_sets[1] & split_sets[2])
             assert 1 + len(SERBIAN_LETTERS) == 29  # blank + 28 vidljivih simbola
 
-            alphabet_text = ''.join(SERBIAN_LETTERS).strip()
+            alphabet_text = ' '.join(('a', ''.join(SERBIAN_LETTERS[1:])))
             encoded = SerbianDataset.txt2arr(alphabet_text, start=1)
             assert SerbianDataset.arr2txt(encoded, start=1) == alphabet_text
 
@@ -608,12 +649,29 @@ def phase3() -> nbf.NotebookNode:
             from torch.utils.data import DataLoader
             from lipnet.dataset import variable_length_collate, validate_ctc_batch
 
-            train_dataset = SerbianDataset(
-                video_path=MOUTH_ROOT,
-                anno_path=CORPUS_ROOT,
-                speakers=TRAIN_SPEAKERS,
-                phase='train',
-            )
+            datasets_by_split = {
+                name: SerbianDataset(
+                    video_path=MOUTH_ROOT,
+                    anno_path=CORPUS_ROOT,
+                    speakers=speakers,
+                    phase=name,
+                )
+                for name, speakers in SPLITS.items()
+            }
+            expected_total = 0
+            for name, dataset in datasets_by_split.items():
+                discovered = {(speaker, sample_id) for _, speaker, sample_id in dataset.data}
+                expected = {
+                    (speaker, path.stem)
+                    for speaker in SPLITS[name]
+                    for path in (CORPUS_ROOT / speaker / 'alignment').glob('*.align')
+                }
+                expected_total += len(expected)
+                assert discovered == expected, (
+                    f'{name}: očekivano={len(expected)} pronađeno={len(discovered)}'
+                )
+            assert sum(map(len, datasets_by_split.values())) == expected_total
+            train_dataset = datasets_by_split['train']
             first = train_dataset[0]
             second = None
             for index in range(1, len(train_dataset)):
@@ -649,6 +707,9 @@ def phase3() -> nbf.NotebookNode:
                 'phase': 3,
                 'num_classes': 1 + len(SERBIAN_LETTERS),
                 'train_samples': len(train_dataset),
+                'samples_by_split': {
+                    name: len(dataset) for name, dataset in datasets_by_split.items()
+                },
                 'batch_shape': list(batch['vid'].shape),
                 'vid_len': batch['vid_len'].tolist(),
                 'txt_len': batch['txt_len'].tolist(),
@@ -702,6 +763,8 @@ def phase4() -> nbf.NotebookNode:
             DEVICE = torch.device('cuda')
             torch.manual_seed(0)
             torch.cuda.manual_seed_all(0)
+            torch.backends.cudnn.benchmark = False
+            torch.backends.cudnn.deterministic = True
             print('GPU:', torch.cuda.get_device_name(0))
             """),
             code(drive_setup_cell()),
@@ -747,7 +810,7 @@ def phase4() -> nbf.NotebookNode:
             assert NUM_CLASSES == 29
             model = LipNet(num_classes=NUM_CLASSES).to(DEVICE)
             audit = load_vipl_transfer(model, CHECKPOINT)
-            assert set(audit.skipped_shape) == {'FC.weight', 'FC.bias'}
+            assert set(audit.skipped_shape) == {{'FC.weight', 'FC.bias'}}
             assert not audit.missing_in_checkpoint and not audit.unexpected_in_checkpoint
             assert all(name in audit.loaded for name in ('conv1.weight', 'conv2.weight', 'conv3.weight'))
             assert any(name.startswith('gru1.') for name in audit.loaded)
@@ -803,6 +866,8 @@ def phase4() -> nbf.NotebookNode:
                 'logits_shape': list(logits_shape),
                 'ctc_loss': loss,
                 'backward': 'passed',
+                'torch_version': torch.__version__,
+                'gpu': torch.cuda.get_device_name(0),
             }
             result_path = DRIVE_ROOT / 'phase4_transfer_ctc_audit.json'
             result_path.write_text(json.dumps(result, indent=2) + '\\n', encoding='utf-8')
@@ -816,6 +881,7 @@ def phase4() -> nbf.NotebookNode:
             checkpoint-e i baseline fine-tuning.
             """),
         ],
+        gpu=True,
     )
 
 
@@ -835,8 +901,11 @@ def phase5() -> nbf.NotebookNode:
             ## Setup
 
             Izaberi **Runtime → Change runtime type → T4 GPU**. Notebook čuva `latest.pt`,
-            `best.pt`, istoriju i rezultate u `MyDrive/LipNet/phase5`, pa bezbedno nastavlja
+            `best.pt`, istoriju i rezultate u `MyDrive/LipNet/phase5_length_aware_v2`, pa bezbedno nastavlja
             rad posle prekida Colab sesije.
+
+            Folder ima novu oznaku zato što stari checkpoint-i nisu length-aware i ne smeju
+            se nastaviti niti porediti kao da koriste isti trening protokol.
             """),
             code("""
             import subprocess, sys
@@ -875,12 +944,15 @@ def phase5() -> nbf.NotebookNode:
             np.random.seed(CONFIG.random_seed)
             torch.manual_seed(CONFIG.random_seed)
             torch.cuda.manual_seed_all(CONFIG.random_seed)
+            torch.backends.cudnn.benchmark = False
+            torch.backends.cudnn.deterministic = True
             print('GPU:', torch.cuda.get_device_name(0))
             print('Konfiguracija:', json.dumps(asdict(CONFIG), indent=2))
             """),
             code(drive_setup_cell()),
             code("""
-            PHASE5_DIR = DRIVE_ROOT / 'phase5'
+            TRAINING_PROTOCOL = 'length-aware-bigru-corpus-metrics-v2'
+            PHASE5_DIR = DRIVE_ROOT / 'phase5_length_aware_v2'
             PHASE5_DIR.mkdir(parents=True, exist_ok=True)
             LATEST_CHECKPOINT = PHASE5_DIR / 'latest.pt'
             BEST_CHECKPOINT = PHASE5_DIR / 'best.pt'
@@ -943,6 +1015,16 @@ def phase5() -> nbf.NotebookNode:
                 ),
                 'test': SerbianDataset(MOUTH_ROOT, CORPUS_ROOT, TEST_SPEAKERS, phase='test'),
             }
+            for name, dataset in raw_datasets.items():
+                expected = {
+                    (speaker, path.stem)
+                    for speaker in SPLITS[name]
+                    for path in (CORPUS_ROOT / speaker / 'alignment').glob('*.align')
+                }
+                discovered = {(speaker, sample_id) for _, speaker, sample_id in dataset.data}
+                assert discovered == expected, (
+                    f'{name}: očekivano={len(expected)} pronađeno={len(discovered)}'
+                )
             ctc_reports = {
                 name: scan_ctc_compatibility(dataset)
                 for name, dataset in raw_datasets.items()
@@ -1038,12 +1120,18 @@ def phase5() -> nbf.NotebookNode:
 
             checkpoint_metadata = {
                 'phase': 5,
+                'training_protocol': TRAINING_PROTOCOL,
                 'upstream_commit': UPSTREAM_SHA,
                 'num_classes': NUM_CLASSES,
                 'speakers': {name: list(value) for name, value in SPLITS.items()},
                 'ctc_filter': {
                     name: {'valid': report.valid_count, 'invalid': report.invalid_count}
                     for name, report in ctc_reports.items()
+                },
+                'environment': {
+                    'torch_version': torch.__version__,
+                    'cuda_version': torch.version.cuda,
+                    'gpu': torch.cuda.get_device_name(0),
                 },
             }
 
@@ -1098,12 +1186,12 @@ def phase5() -> nbf.NotebookNode:
                 )
 
                 print(
-                    f'Epoha {{epoch + 1:02d}}/{{CONFIG.max_epochs}} '
-                    f'[{{record["stage"]}}] '
-                    f'train loss={{train_result.loss:.4f}} WER={{train_result.wer:.4f}} | '
-                    f'val loss={{validation_result.loss:.4f}} '
-                    f'WER={{validation_result.wer:.4f}} CER={{validation_result.cer:.4f}} '
-                    f'exact={{validation_result.sentence_exact_match:.4f}}'
+                    f'Epoha {epoch + 1:02d}/{CONFIG.max_epochs} '
+                    f'[{record["stage"]}] '
+                    f'train loss={train_result.loss:.4f} WER={train_result.wer:.4f} | '
+                    f'val loss={validation_result.loss:.4f} '
+                    f'WER={validation_result.wer:.4f} CER={validation_result.cer:.4f} '
+                    f'exact={validation_result.sentence_exact_match:.4f}'
                     + ('  *BEST*' if improved else '')
                 )
                 if (
@@ -1164,6 +1252,7 @@ def phase5() -> nbf.NotebookNode:
 
             if (
                 previous_results is not None
+                and previous_results.get('metrics_definition') == 'corpus-edit-distance-v1'
                 and previous_results.get('best_epoch') == best_state.best_epoch
                 and previous_results.get('best_checkpoint_sha256') == best_checkpoint_sha256
                 and not FORCE_TEST_REEVALUATION
@@ -1180,6 +1269,8 @@ def phase5() -> nbf.NotebookNode:
                 ]
                 results = {
                     'phase': 5,
+                    'training_protocol': TRAINING_PROTOCOL,
+                    'metrics_definition': 'corpus-edit-distance-v1',
                     'upstream_commit': UPSTREAM_SHA,
                     'config': asdict(CONFIG),
                     'best_epoch': best_state.best_epoch,
@@ -1190,6 +1281,7 @@ def phase5() -> nbf.NotebookNode:
                     'test_samples': test_result.samples,
                     'qualitative': qualitative,
                     'ctc_filter': checkpoint_metadata['ctc_filter'],
+                    'environment': checkpoint_metadata['environment'],
                 }
                 RESULTS_PATH.write_text(
                     json.dumps(results, indent=2, ensure_ascii=False) + '\\n',
@@ -1221,7 +1313,10 @@ def phase5() -> nbf.NotebookNode:
             inference_batch = next(iter(make_loader('test')))
             reloaded_model.eval()
             with torch.no_grad():
-                inference_logits = reloaded_model(inference_batch['vid'].to(DEVICE))
+                inference_logits = reloaded_model(
+                    inference_batch['vid'].to(DEVICE),
+                    lengths=inference_batch['vid_len'],
+                )
             inference_text = greedy_decode(
                 inference_logits, output_lengths=inference_batch['vid_len']
             )
@@ -1237,6 +1332,277 @@ def phase5() -> nbf.NotebookNode:
             split i isti greedy dekoder; menja se samo ulazna rezolucija, blur ili crop jitter.
             """),
         ],
+        gpu=True,
+    )
+
+
+def phase6() -> nbf.NotebookNode:
+    return notebook(
+        "Faza 6 — provera rezultata i robustnost ulaza",
+        [
+            md("""
+            ## Goal
+
+            Ponovo izračunaj baseline test metrike iz `best.pt`, potvrdi ih prema Phase 5
+            rezultatu i zatim, bez dodatnog treninga, izmeri uticaj niže rezolucije, blur-a
+            i kontrolisanog crop pomeranja. Sve varijante koriste isti test split, isti
+            checkpoint, isti greedy CTC dekoder i corpus-level WER/CER.
+            """),
+            md("""
+            ## Setup
+
+            Izaberi T4 GPU. Pre ovog notebooka mora biti završen novi length-aware notebook
+            Faze 5 i na Drive-u moraju postojati `phase5_length_aware_v2/best.pt` i
+            `phase5_length_aware_v2/results.json`.
+            """),
+            code("""
+            import subprocess, sys
+            subprocess.run(
+                [sys.executable, '-m', 'pip', 'install', '-q',
+                 'editdistance>=0.8.1', 'opencv-python-headless>=4.10'],
+                check=True,
+            )
+            """),
+            code(repo_setup_cell()),
+            code("""
+            import hashlib
+            import json
+            import math
+
+            import matplotlib.pyplot as plt
+            import numpy as np
+            import torch
+            import torch.nn.functional as F
+
+            assert torch.cuda.is_available(), 'Uključi T4 GPU u Colab Runtime postavkama.'
+            DEVICE = torch.device('cuda')
+            torch.manual_seed(0)
+            torch.cuda.manual_seed_all(0)
+            torch.backends.cudnn.benchmark = False
+            torch.backends.cudnn.deterministic = True
+            print('GPU:', torch.cuda.get_device_name(0))
+            """),
+            code(drive_setup_cell()),
+            md("## Steps\n\n### 1. Učitaj test mouth frejmove i anotacije"),
+            code("""
+            import zipfile
+
+            MOUTH_ARCHIVE = DRIVE_ROOT / 'ai_speak_lip.zip'
+            SOURCE_ARCHIVE = Path('/content/drive/MyDrive/processed.zip')  # promeni po potrebi
+            MOUTH_ROOT = Path('/content/ai_speak_lip')
+            ALIGN_EXTRACT = Path('/content/ai_speak_align')
+            assert MOUTH_ARCHIVE.exists(), MOUTH_ARCHIVE
+            assert SOURCE_ARCHIVE.exists(), SOURCE_ARCHIVE
+
+            if not next(MOUTH_ROOT.glob('spk*/video/video_a/*'), None):
+                MOUTH_ROOT.mkdir(parents=True, exist_ok=True)
+                with zipfile.ZipFile(MOUTH_ARCHIVE) as archive:
+                    archive.extractall(MOUTH_ROOT)
+            if not next(ALIGN_EXTRACT.rglob('spk*/alignment/*.align'), None):
+                ALIGN_EXTRACT.mkdir(parents=True, exist_ok=True)
+                with zipfile.ZipFile(SOURCE_ARCHIVE) as archive:
+                    members = [
+                        member for member in archive.infolist()
+                        if '/alignment/' in f'/{member.filename}'
+                        and member.filename.endswith('.align')
+                    ]
+                    archive.extractall(ALIGN_EXTRACT, members=members)
+            CORPUS_ROOT = next(ALIGN_EXTRACT.rglob('spk*/alignment/*.align')).parents[2]
+            """),
+            code("""
+            from torch.utils.data import DataLoader, Subset
+
+            from data.splits import TEST_SPEAKERS
+            from lipnet.dataset import SerbianDataset, variable_length_collate
+            from lipnet.train import scan_ctc_compatibility
+
+            raw_test_dataset = SerbianDataset(
+                MOUTH_ROOT, CORPUS_ROOT, TEST_SPEAKERS, phase='test'
+            )
+            ctc_report = scan_ctc_compatibility(raw_test_dataset)
+            test_dataset = Subset(raw_test_dataset, ctc_report.valid_indices)
+            test_loader = DataLoader(
+                test_dataset,
+                batch_size=2,
+                shuffle=False,
+                num_workers=2,
+                collate_fn=variable_length_collate,
+                pin_memory=True,
+            )
+            print('Test:', len(test_dataset), 'CTC-odbačeno:', ctc_report.invalid_count)
+            """),
+            md("### 2. Učitaj tačno provereni Phase 5 checkpoint"),
+            code("""
+            from lipnet.dataset import SERBIAN_LETTERS
+            from lipnet.model import LipNet
+
+            PHASE5_DIR = DRIVE_ROOT / 'phase5_length_aware_v2'
+            BEST_CHECKPOINT = PHASE5_DIR / 'best.pt'
+            PHASE5_RESULTS = PHASE5_DIR / 'results.json'
+            EXPERIMENT_RESULTS = PHASE5_DIR / 'robustness_results.json'
+            EXPERIMENT_PLOT = PHASE5_DIR / 'robustness_metrics.png'
+            assert BEST_CHECKPOINT.exists() and PHASE5_RESULTS.exists()
+
+            checkpoint = torch.load(BEST_CHECKPOINT, map_location='cpu', weights_only=False)
+            assert checkpoint['metadata']['training_protocol'] == 'length-aware-bigru-corpus-metrics-v2'
+            model = LipNet(num_classes=1 + len(SERBIAN_LETTERS)).to(DEVICE)
+            model.load_state_dict(checkpoint['model_state_dict'], strict=True)
+            model.eval()
+
+            hasher = hashlib.sha256()
+            with BEST_CHECKPOINT.open('rb') as handle:
+                for chunk in iter(lambda: handle.read(1024 * 1024), b''):
+                    hasher.update(chunk)
+            checkpoint_sha256 = hasher.hexdigest()
+            phase5_results = json.loads(PHASE5_RESULTS.read_text(encoding='utf-8'))
+            assert phase5_results['best_checkpoint_sha256'] == checkpoint_sha256
+            assert phase5_results['metrics_definition'] == 'corpus-edit-distance-v1'
+            """),
+            md("### 3. Definiši determinističke ulazne varijante"),
+            code("""
+            def map_frames(video, operation):
+                batch, channels, time, height, width = video.shape
+                frames = video.permute(0, 2, 1, 3, 4).reshape(
+                    batch * time, channels, height, width
+                )
+                changed = operation(frames)
+                return changed.reshape(batch, time, channels, height, width).permute(0, 2, 1, 3, 4)
+
+            def identity(video):
+                return video
+
+            def resolution(video, height, width):
+                def resize(frames):
+                    low = F.interpolate(
+                        frames, size=(height, width), mode='bilinear', align_corners=False
+                    )
+                    return F.interpolate(
+                        low, size=(64, 128), mode='bilinear', align_corners=False
+                    )
+                return map_frames(video, resize)
+
+            def gaussian_blur(video, kernel_size=5, sigma=1.0):
+                coordinates = torch.arange(kernel_size, device=video.device) - kernel_size // 2
+                kernel_1d = torch.exp(-(coordinates.float() ** 2) / (2 * sigma**2))
+                kernel_1d /= kernel_1d.sum()
+                kernel_2d = torch.outer(kernel_1d, kernel_1d)
+                kernel = kernel_2d.expand(3, 1, kernel_size, kernel_size)
+                def blur(frames):
+                    padded = F.pad(
+                        frames,
+                        (kernel_size // 2,) * 4,
+                        mode='reflect',
+                    )
+                    return F.conv2d(padded, kernel, groups=3)
+                return map_frames(video, blur)
+
+            def crop_shift(video, dx=4, dy=2):
+                shifted = torch.zeros_like(video)
+                shifted[:, :, :, dy:, dx:] = video[:, :, :, :-dy, :-dx]
+                return shifted
+
+            conditions = {
+                'baseline_128x64': identity,
+                'resolution_96x48': lambda video: resolution(video, 48, 96),
+                'resolution_64x32': lambda video: resolution(video, 32, 64),
+                'gaussian_blur_5_sigma1': gaussian_blur,
+                'crop_shift_dx4_dy2': crop_shift,
+            }
+            """),
+            md("### 4. Izmeri sve uslove istim dekoderom i definicijom metrika"),
+            code("""
+            from lipnet.train import greedy_decode, reference_text, sequence_metrics
+
+            condition_outputs = {}
+            for name, transform in conditions.items():
+                predictions = []
+                references = []
+                with torch.inference_mode():
+                    for batch in test_loader:
+                        video = transform(batch['vid'].to(DEVICE, non_blocking=True))
+                        logits = model(video, lengths=batch['vid_len'])
+                        predictions.extend(
+                            greedy_decode(logits, output_lengths=batch['vid_len'])
+                        )
+                        references.extend(reference_text(batch))
+                metrics = sequence_metrics(predictions, references)
+                condition_outputs[name] = {
+                    'metrics': metrics,
+                    'predictions': predictions,
+                    'references': references,
+                }
+                print(name, json.dumps(metrics, ensure_ascii=False))
+
+            baseline_metrics = condition_outputs['baseline_128x64']['metrics']
+            for metric in ('wer', 'cer', 'sentence_exact_match'):
+                assert math.isclose(
+                    baseline_metrics[metric],
+                    phase5_results['test'][metric],
+                    rel_tol=0.0,
+                    abs_tol=1e-12,
+                ), (metric, baseline_metrics[metric], phase5_results['test'][metric])
+            print('PASS: baseline se tačno poklapa sa sačuvanom Phase 5 evaluacijom.')
+            """),
+            md("## Checks\n\n### 5. Sačuvaj delte, kvalitativne greške i grafikon"),
+            code("""
+            summary = {}
+            for name, output in condition_outputs.items():
+                metrics = output['metrics']
+                errors = [
+                    {'reference': reference, 'prediction': prediction}
+                    for reference, prediction in zip(output['references'], output['predictions'])
+                    if reference != prediction
+                ][:10]
+                summary[name] = {
+                    **metrics,
+                    'wer_delta_vs_baseline': metrics['wer'] - baseline_metrics['wer'],
+                    'cer_delta_vs_baseline': metrics['cer'] - baseline_metrics['cer'],
+                    'qualitative_errors': errors,
+                }
+
+            payload = {
+                'phase': 6,
+                'checkpoint_sha256': checkpoint_sha256,
+                'metrics_definition': 'corpus-edit-distance-v1',
+                'test_samples': len(test_dataset),
+                'environment': {
+                    'torch_version': torch.__version__,
+                    'cuda_version': torch.version.cuda,
+                    'gpu': torch.cuda.get_device_name(0),
+                },
+                'conditions': summary,
+            }
+            EXPERIMENT_RESULTS.write_text(
+                json.dumps(payload, indent=2, ensure_ascii=False) + '\\n',
+                encoding='utf-8',
+            )
+
+            names = list(summary)
+            figure, axes = plt.subplots(1, 2, figsize=(13, 4))
+            for axis, metric in zip(axes, ('wer', 'cer')):
+                values = [summary[name][metric] for name in names]
+                axis.barh(names, values)
+                axis.set_xlabel(metric.upper())
+                axis.set_xlim(left=0)
+                axis.grid(axis='x', alpha=0.25)
+                for index, value in enumerate(values):
+                    axis.text(value, index, f' {value:.4f}', va='center')
+            plt.tight_layout()
+            figure.savefig(EXPERIMENT_PLOT, dpi=160, bbox_inches='tight')
+            plt.show()
+            print('Sačuvano:', EXPERIMENT_RESULTS)
+            print('Sačuvano:', EXPERIMENT_PLOT)
+            """),
+            md("""
+            ## Next Steps
+
+            Rezultate tumači tek nakon uspešnog baseline `assert` poređenja. Veći pozitivni
+            `wer_delta_vs_baseline` znači da je intervencija pogoršala model. U završni tekst
+            prenesi samo vrednosti iz `robustness_results.json` i navedi checkpoint SHA-256,
+            jer time ostaje proverljivo koji je model evaluiran.
+            """),
+        ],
+        gpu=True,
     )
 
 
@@ -1249,6 +1615,7 @@ def main() -> None:
         "03_faza_3_serbian_dataset.ipynb": phase3(),
         "04_faza_4_transfer_ctc_smoke.ipynb": phase4(),
         "05_faza_5_baseline_finetuning.ipynb": phase5(),
+        "06_faza_6_robustness_experiments.ipynb": phase6(),
     }
     for name, value in notebooks.items():
         nbf.write(value, OUTPUT / name)

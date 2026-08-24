@@ -43,16 +43,19 @@ git ls-remote https://github.com/VIPL-Audio-Visual-Speech-Understanding/LipNet-P
 | 2 | propušten landmark znači preskočen frejm | isto, uz brojanje i `failed_clips.log`/QA | neuspeh mora biti vidljiv bez trening manifesta | QA sheet i runtime log; Dataset ne čita log |
 | 3 | space-separated GRID `.align`, velika slova | tab-separated AI-SPEAK `.align`, NFC mala slova | format lokalnog skupa i srpski alfabet | parser test i `txt2arr -> arr2txt` round-trip |
 | 3 | fiksni `vid_pad=75`, `txt_pad=200` | batch-local dinamički padding | promenljive dužine klipova | dva različita klipa u istom batch-u, realni `vid_len`/`txt_len` |
+| 3/4 | fiksno dugačke GRID sekvence bez packed RNN-a | vremenska maska posle svakog 3D CNN bloka + packed oba BiGRU sloja | padding kraćeg klipa ne sme menjati njegove validne logite | test poredi isti klip samostalno i u batch-u sa dužim klipom |
 | 3 | tekstualna lista svakog GRID uzorka | verzionisane speaker liste + runtime discovery | speaker-disjoint split bez manifesta | disjunktnost se validira pri importu `data/splits.py` |
 | 4 | fiksni `FC: 512 -> 28` | parametrizovan `FC`, srpski `512 -> 29` | blank + razmak + 27 znakova iz lokalnog korpusa | shape-filtered audit mora preskočiti samo `FC.weight`/`FC.bias` |
 | 4 | CTC u petlji sa `.cuda()` | eksplicitni device i provera minimalnih CTC koraka | savremeni API i rani shape error | jedan mali batch radi forward, konačan loss i backward bez NaN gradijenata |
 | 5 | Adam/CTC petlja, periodični test i model `state_dict` checkpoint | train/validation epohe, stvarne decode dužine i `latest`/`best` potpuni checkpoint | promenljive dužine, Colab prekidi i izbor bez test leakage-a | CPU toy testovi za metrike/resume; Colab prati validation WER i testira samo `best.pt` |
 | 5 | svi parametri optimizovani istim LR-om | 3 head-only epohe, zatim backbone `2e-5` i head `1e-4` | bezbedna adaptacija novog srpskog CTC head-a | notebook prikazuje stage svake epohe i trainable audit pokrivaju testovi |
+| 5 | prosečan sentence-normalized VIPL WER/CER | corpus edit greške / ukupan broj referentnih reči ili karaktera | standardno i dosledno poređenje različito dugih rečenica | test sa nejednakim denominatorima; Faza 6 ponavlja Phase 5 baseline |
+| 6 | nema traženih robustness eksperimenata | isti `best.pt` nad originalom, dve rezolucije, blur-om i crop pomeranjem | ispunjenje praktičnog dela bez promene modela/dekodera | checkpoint SHA-256 i baseline jednakost pre poređenja uslova |
 
 ## Legacy izolacija
 
-`app/data.py`, `app/preprocessing.py`, `app/phase2.py`, `app/gpu_roi.py`, stari
-Faza 1/2 notebookovi i dokumenti ostaju samo radi istorije rada. Aktivni kod u
-`lipnet/`, `scripts/prepare_ai_speak.py` i novim `00_...`–`04_...` notebookovima
-ne uvozi `app`, ne čita `manifest.csv`, `roi.csv`, `roi_qa.json`, `vocab.json`
+`app/` pipeline, stari Faza 1/2 notebookovi, njihovi dokumenti i template
+`hello.py` uklonjeni su 24. avgusta 2026. Njihova istorija ostaje dostupna kroz
+Git. Aktivni kod u `lipnet/`, `scripts/prepare_ai_speak.py` i notebookovima
+`00_...`–`06_...` ne čita `manifest.csv`, `roi.csv`, `roi_qa.json`, `vocab.json`
 niti `split.json` i ne koristi statičan/median ROI.

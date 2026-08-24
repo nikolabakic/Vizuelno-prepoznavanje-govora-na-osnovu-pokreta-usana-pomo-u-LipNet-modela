@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 import cv2
@@ -18,6 +19,12 @@ from lipnet.dataset import (
 )
 from lipnet.model import LipNet
 from lipnet.train import load_vipl_transfer
+from scripts.prepare_ai_speak import (
+    ClipResult,
+    discover_pairs,
+    restore_checkpoint_archives,
+    write_checkpoint,
+)
 
 
 def test_speaker_splits_are_disjoint() -> None:
@@ -88,3 +95,64 @@ def test_transfer_skips_only_incompatible_fc(tmp_path: Path) -> None:
     assert set(audit.skipped_shape) == {"FC.weight", "FC.bias"}
     assert not audit.missing_in_checkpoint
     assert not audit.unexpected_in_checkpoint
+
+
+def test_length_aware_bigru_ignores_batch_padding() -> None:
+    torch.manual_seed(0)
+    model = LipNet(num_classes=29).eval()
+    short = torch.randn(1, 3, 4, 64, 128)
+    long = torch.randn(1, 3, 6, 64, 128)
+    padded = torch.zeros(2, 3, 6, 64, 128)
+    padded[0, :, :4] = short[0]
+    padded[1] = long[0]
+
+    with torch.inference_mode():
+        standalone = model(short, lengths=torch.tensor([4]))
+        batched = model(padded, lengths=torch.tensor([4, 6]))
+
+    torch.testing.assert_close(batched[0, :4], standalone[0], rtol=1e-5, atol=1e-5)
+
+
+def test_checkpoint_restore_preserves_real_frame_audit(tmp_path: Path) -> None:
+    source = tmp_path / "source"
+    sample = source / "spk01/video/video_a/sample"
+    sample.mkdir(parents=True)
+    for index in range(1, 4):
+        (sample / f"{index:06d}.jpg").write_bytes(b"jpeg")
+    result = ClipResult(
+        sample_id="sample",
+        speaker="spk01",
+        video="video.mp4",
+        output=str(sample),
+        decoded_frames=5,
+        landmark_frames=3,
+        dropped_frames=2,
+    )
+    checkpoint_dir = tmp_path / "checkpoints"
+    write_checkpoint([result], [], source, checkpoint_dir, 1, 1)
+
+    restored_root = tmp_path / "restored"
+    restored_root.mkdir()
+    assert restore_checkpoint_archives(checkpoint_dir, restored_root) == 1
+    payload = json.loads(
+        (restored_root / "preprocessing.jsonl").read_text(encoding="utf-8").strip()
+    )
+    assert payload["decoded_frames"] == 5
+    assert payload["landmark_frames"] == 3
+    assert payload["dropped_frames"] == 2
+    assert len(list((restored_root / "spk01/video/video_a/sample").glob("*.jpg"))) == 3
+
+
+def test_pair_discovery_allows_same_stem_for_different_speakers(tmp_path: Path) -> None:
+    for speaker in ("spk01", "spk02"):
+        video = tmp_path / speaker / "ser/video_a/sample.mp4"
+        alignment = tmp_path / speaker / "alignment/sample.align"
+        video.parent.mkdir(parents=True)
+        alignment.parent.mkdir(parents=True)
+        video.touch()
+        alignment.touch()
+    pairs = discover_pairs(tmp_path)
+    assert {(speaker, sample_id) for sample_id, speaker, _, _ in pairs} == {
+        ("spk01", "sample"),
+        ("spk02", "sample"),
+    }

@@ -1,12 +1,13 @@
 # VIPL-first roadmap za LipNet projekat
 
-Datum revizije: 18. avgust 2026.
+Datum revizije: 24. avgust 2026.
 
 ## Status implementacije
 
-Kod i Colab notebookovi za Faze 0–5 napisani su do 18. avgusta 2026. Prihvatni
-kriterijumi koji zahtevaju GRID/AI-SPEAK podatke ili GPU namerno još nisu
-označeni kao izvršeni; potvrđuju se redom u `playground/00_...` do `05_...`.
+Kod i čisti Colab notebookovi za Faze 0–6 su pripremljeni. Lokalni CPU testovi
+prolaze, ali GPU rezultati Faza 04–06 moraju ponovo da se izračunaju nakon
+ispravke vremenskog padding-a. Stare brojke su dokumentovane, ali nisu označene
+kao potvrđene u [auditu rezultata](provera-rezultata.md).
 
 | Faza | Kod/notebook | Izvršni status |
 |---:|---|---|
@@ -15,7 +16,8 @@ označeni kao izvršeni; potvrđuju se redom u `playground/00_...` do `05_...`.
 | 2 | VIPL demo MP4 → mouth JPEG + QA/log | spremno za Colab GPU |
 | 3 | srpski Dataset, split i promenljivi collate | spremno posle artefakta Faze 2 |
 | 4 | 29-klasni head, transfer audit i CTC backward | spremno posle Faze 3, Colab GPU |
-| 5 | postepeni fine-tuning, resume, best-WER izbor i test | spremno posle Faze 4, Colab GPU |
+| 5 | length-aware fine-tuning, resume, best-WER izbor i test | spremno za novi GPU run |
+| 6 | rezolucija, blur, crop pomeranje i baseline recheck | spremno posle novog Phase 5 checkpoint-a |
 
 ## 1. Nova odluka
 
@@ -30,16 +32,14 @@ Prethodno implementirani pipeline nije osnova za nastavak rada. Posebno se više
 ne koriste:
 
 - `manifest.csv`, `roi.csv`, `roi_qa.json`, `vocab.json` i `split.json` kao ulaz u trening;
-- MediaPipe/median-ROI pristup iz `app/preprocessing.py`;
-- zasebne komande `app.phase2 build`, `app.phase2 roi` i `app.gpu_roi`;
+- prethodni MediaPipe/median-ROI pristup;
+- prethodne manifest/ROI komande;
 - postojeći notebook-ovi Faze 1 i Faze 2 kao osnova novog notebook-a;
 - prethodna podela na faze u kojoj se prvo gradi sopstvena infrastruktura pa tek
   kasnije dodaje LipNet.
 
-Postojeći fajlovi i artefakti se do početka implementacije smatraju **legacy**
-materijalom. Ne prenose se njihovi generisani podaci, pretpostavke niti API-ji u
-novi tok. Brisanje ili zamena koda radiće se tek u implementacionoj Fazi 0, nakon
-što je referentna verzija VIPL repoa sačuvana i proverena.
+Legacy kod, stari notebookovi i stara Faza 1/2 dokumentacija uklonjeni su nakon
+što je potvrđeno da ih aktivni tok ne uvozi. Njihova istorija ostaje u Git-u.
 
 ## 2. Obavezno upstream-first pravilo
 
@@ -87,7 +87,7 @@ licencirani kod mora zadržati originalno obaveštenje o licenci i jasno naveden
 | Batch/padding | `vid_padding=75`, `txt_padding=200` | Prvo reprodukovati bez izmene na GRID-u; za promenljive AI-SPEAK klipove napraviti najmanju potrebnu izmenu collate/padding logike |
 | CTC | `nn.CTCLoss()` i stvarne dužine | Preuzeti tok; dodati samo validaciju dužina i savremeni oblik tenzora gde je nužno |
 | Dekodiranje | greedy argmax + collapse repeats/blanks | Preuzeti; bez beam search-a, jezičkog modela ili gramatičkog korektora |
-| Metrike | upstream WER/CER | Preuzeti i dodati sentence exact match za zahtev izveštaja |
+| Metrike | upstream per-sentence WER/CER | Koristiti corpus-level edit greške / ukupan referentni denominator i dodati sentence exact match |
 | Trening | Adam, validacija i checkpoint iz `main.py` | Zadržati kao početni baseline; menjati samo device, konfiguraciju i parametre potrebne za Colab |
 
 ## 4. Dozvoljena odstupanja
@@ -116,7 +116,7 @@ Struktura treba da ostane prepoznatljivo bliska upstream-u:
 lipnet/
 ├── model.py              # VIPL model; samo parametrizovan broj klasa
 ├── dataset.py            # VIPL Dataset + minimalni srpski adapter
-├── cvtransforms.py       # VIPL transformacije + eksperimentalne transformacije
+├── cvtransforms.py       # VIPL horizontalni flip i normalizacija
 ├── train.py              # adaptiran VIPL main.py
 ├── demo.py               # adaptiran VIPL demo.py
 ├── options.py            # zajednički baseline parametri
@@ -127,9 +127,10 @@ scripts/
 data/
 └── splits.py             # eksplicitni speaker ID-jevi; bez manifesta sa uzorcima
 playground/
-└── lipnet_colab.ipynb    # jedan notebook za reprodukciju, trening i demonstraciju
+└── 00_...06_...          # fazni notebookovi, generisani iz jednog skripta
 docs/
 ├── upstream-diff.md      # obavezna evidencija minimalnih odstupanja
+├── provera-rezultata.md
 └── analiza-i-roadmap.md
 ```
 
@@ -145,9 +146,8 @@ ne treba deliti na novu lokalnu infrastrukturu bez stvarne potrebe.
 - zabeležiti URL, branch i tačan commit SHA VIPL repozitorijuma;
 - sačuvati upstream licencu;
 - napraviti inventar upstream fajlova i njihovih lokalnih odredišta;
-- označiti postojeće `app/data.py`, `app/preprocessing.py`, `app/phase2.py`,
-  `app/gpu_roi.py`, Faza 1/2 notebook-ove i generisane Phase 2 artefakte kao legacy;
-- ukloniti ih iz aktivnog toka pre nego što se uvede novi kod;
+- identifikovati prethodni `app/` tok, stare notebookove i dokumente kao legacy;
+- ukloniti ih iz aktivnog toka nakon provere referenci;
 - otvoriti `docs/upstream-diff.md` sa praznom tabelom odstupanja.
 
 **Prihvatni kriterijum:** nijedna naredna faza ne uvozi legacy module niti čita
@@ -199,6 +199,8 @@ dekodirani tekst na izabranom primeru. Bez ove tačke se ne prelazi na AI-SPEAK.
 - speaker-disjoint train/validation/test ID-jeve držati u maloj verzionisanoj
   konfiguraciji; Dataset pri pokretanju sam pronalazi pripadajuće uzorke;
 - implementirati collate/padding samo koliko je potrebno za promenljive dužine;
+- maskirati padded vreme posle svakog 3D CNN bloka i oba BiGRU sloja pokretati
+  preko packed sekvenci;
 - proveriti `target_length <= input_length` nakon vremenskog prolaza modela.
 
 **Prihvatni kriterijum:** DataLoader vraća isti rečnik ključeva kao VIPL
@@ -243,18 +245,18 @@ potpuno neviđenim govornicima.
 
 **Cilj:** odgovoriti na zadatak bez menjanja osnovnog modela.
 
-Na istom test splitu i sa istim baseline checkpoint-om uraditi:
+Notebook `06_faza_6_robustness_experiments.ipynb` na istom test splitu i sa
+istim baseline checkpoint-om radi:
 
 1. originalni `128x64` mouth crop;
 2. degradaciju `96x48 -> 128x64`;
 3. degradaciju `64x32 -> 128x64`;
 4. Gaussian blur;
-5. clip-consistent crop jitter;
-6. po potrebi jedan kratak nastavak fine-tuning-a sa blur/jitter augmentacijom.
+5. determinističko clip-consistent crop pomeranje.
 
-Blur i crop jitter se dodaju kao male transformacije uz VIPL `cvtransforms.py`,
-ne kao novi preprocessing sistem. Za svaki scenario prikazati CER, WER, sentence
-exact match i nekoliko kvalitativnih predikcija.
+Blur, resize i crop pomeranje ostaju lokalne evaluacione funkcije u Fazi 6, ne
+novi preprocessing sistem niti trening augmentacija. Za svaki scenario prikazati
+CER, WER, sentence exact match i nekoliko kvalitativnih predikcija.
 
 **Prihvatni kriterijum:** svi scenariji razlikuju samo testiranu perturbaciju;
 split, checkpoint i dekoder ostaju isti.
@@ -309,6 +311,8 @@ Testovi treba prvenstveno da potvrde kompatibilnost sa upstream-om:
 - srpski `txt2arr -> arr2txt` round-trip čuva sva slova;
 - lokalni `.align` parser uklanja samo `sil`/`sp`;
 - promenljivo dugi klipovi imaju ispravne `vid_len` i padding;
+- isti kraći klip daje iste validne logite samostalno i u padded batch-u;
+- WER/CER koriste zbir edit grešaka i zbir referentnih denominatora;
 - checkpoint audit potvrđuje da je preskočen samo srpski head;
 - jedan batch prolazi forward, CTC loss i backward.
 

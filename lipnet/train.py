@@ -16,6 +16,7 @@ from typing import Any, Mapping, Sequence, Type
 import numpy as np
 import torch
 import torch.nn as nn
+import editdistance
 from torch.optim import Adam, Optimizer
 from torch.utils.data import Dataset
 
@@ -164,9 +165,14 @@ def greedy_decode(
         lengths = list(output_lengths)
     if len(lengths) != token_ids.shape[0]:
         raise ValueError("Broj output dužina mora odgovarati batch dimenziji")
+    normalized_lengths = [int(length) for length in lengths]
+    if any(length <= 0 or length > token_ids.shape[1] for length in normalized_lengths):
+        raise ValueError(
+            f"Neispravne output dužine {normalized_lengths} za T={token_ids.shape[1]}"
+        )
     return [
-        dataset_type.ctc_arr2txt(row[: min(int(length), token_ids.shape[1])], start=1)
-        for row, length in zip(token_ids, lengths)
+        dataset_type.ctc_arr2txt(row[:length], start=1)
+        for row, length in zip(token_ids, normalized_lengths)
     ]
 
 
@@ -178,9 +184,27 @@ def reference_text(batch: dict[str, torch.Tensor]) -> list[str]:
 
 
 def sequence_metrics(predictions: list[str], references: list[str]) -> dict[str, float]:
+    """Return corpus-level WER/CER and sentence-level exact match.
+
+    WER and CER use total edit errors divided by the total number of reference
+    words/characters. This keeps comparisons valid when sentence lengths differ.
+    """
+    if not predictions or len(predictions) != len(references):
+        raise ValueError("Predikcije i reference moraju biti neprazne i iste dužine")
+    word_errors = 0
+    reference_words = 0
+    character_errors = 0
+    reference_characters = 0
+    for prediction, reference in zip(predictions, references):
+        prediction_tokens = prediction.split()
+        reference_tokens = reference.split()
+        word_errors += editdistance.eval(prediction_tokens, reference_tokens)
+        reference_words += len(reference_tokens)
+        character_errors += editdistance.eval(prediction, reference)
+        reference_characters += len(reference)
     return {
-        "wer": float(np.mean(SerbianDataset.wer(predictions, references))),
-        "cer": float(np.mean(SerbianDataset.cer(predictions, references))),
+        "wer": word_errors / max(reference_words, 1),
+        "cer": character_errors / max(reference_characters, 1),
         "sentence_exact_match": float(
             np.mean([prediction == reference for prediction, reference in zip(predictions, references)])
         ),
@@ -194,7 +218,10 @@ def ctc_loss(
 ) -> torch.Tensor:
     """Compute VIPL CTC loss with real lengths and an explicit feasibility check."""
     output_lengths = batch["vid_len"].to(dtype=torch.long, device="cpu")
-    output_lengths = output_lengths.clamp(max=logits.shape[1])
+    if torch.any(output_lengths <= 0) or torch.any(output_lengths > logits.shape[1]):
+        raise ValueError(
+            f"Neispravne output dužine {output_lengths.tolist()} za T={logits.shape[1]}"
+        )
     validate_ctc_batch(batch, output_lengths)
     if criterion is None:
         criterion = nn.CTCLoss(blank=0, zero_infinity=False)
@@ -218,7 +245,7 @@ def backward_smoke_step(
         key: value.to(device) if key in {"vid", "txt"} else value
         for key, value in batch.items()
     }
-    logits = model(device_batch["vid"])
+    logits = model(device_batch["vid"], lengths=batch["vid_len"])
     loss = ctc_loss(logits, device_batch)
     if not torch.isfinite(loss):
         raise FloatingPointError(f"CTC loss nije konačan: {loss.item()}")
@@ -321,7 +348,7 @@ def run_epoch(
                 for key, value in batch.items()
             }
 
-            logits = model(device_batch["vid"])
+            logits = model(device_batch["vid"], lengths=batch["vid_len"])
             loss = ctc_loss(logits, device_batch, criterion)
 
             if not torch.isfinite(loss):
@@ -458,63 +485,3 @@ def load_training_checkpoint(
 def validation_wer_improved(current: float, best: float) -> bool:
     """The baseline checkpoint criterion is strictly lower validation WER."""
     return bool(np.isfinite(current) and current < best)
-
-def build_strong_finetune_optimizer(model: nn.Module) -> Adam:
-    param_groups = {
-        "conv_early": [],
-        "conv3": [],
-        "gru1": [],
-        "gru2": [],
-        "head": [],
-    }
-
-    for name, parameter in model.named_parameters():
-        if name.startswith(("conv1.", "conv2.")):
-            param_groups["conv_early"].append(parameter)
-        elif name.startswith("conv3."):
-            param_groups["conv3"].append(parameter)
-        elif name.startswith("gru1."):
-            param_groups["gru1"].append(parameter)
-        elif name.startswith("gru2."):
-            param_groups["gru2"].append(parameter)
-        elif name.startswith("FC."):
-            param_groups["head"].append(parameter)
-        else:
-            raise ValueError(f"Neočekivan parametar modela: {name}")
-
-    return Adam(
-        [
-            {
-                "params": param_groups["conv_early"],
-                "lr": 2e-6,
-                "initial_lr": 2e-6,
-                "name": "conv_early",
-            },
-            {
-                "params": param_groups["conv3"],
-                "lr": 5e-6,
-                "initial_lr": 5e-6,
-                "name": "conv3",
-            },
-            {
-                "params": param_groups["gru1"],
-                "lr": 1e-5,
-                "initial_lr": 1e-5,
-                "name": "gru1",
-            },
-            {
-                "params": param_groups["gru2"],
-                "lr": 2e-5,
-                "initial_lr": 2e-5,
-                "name": "gru2",
-            },
-            {
-                "params": param_groups["head"],
-                "lr": 5e-5,
-                "initial_lr": 5e-5,
-                "name": "head",
-            },
-        ],
-        weight_decay=0.0,
-        amsgrad=True,
-    )
