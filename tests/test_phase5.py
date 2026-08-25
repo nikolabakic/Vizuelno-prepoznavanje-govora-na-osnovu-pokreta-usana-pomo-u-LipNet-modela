@@ -218,3 +218,13 @@ def test_phase_notebook_sources_match_generator() -> None:
     assert "sys.path.insert(0, repo_path)" in phase5_code
     assert "'lengths' in forward_parameters" in phase5_code
     assert "'lengths' in inspect.signature(model.forward).parameters" in phase5_code
+
+    phase6 = nbformat.read(
+        root / "playground/06_faza_6_robustness_experiments.ipynb", as_version=4
+    )
+    phase6_code = "\n".join(
+        cell.source for cell in phase6.cells if cell.cell_type == "code"
+    )
+    assert "if name == 'lipnet' or name.startswith('lipnet.')" in phase6_code
+    assert "sys.path.insert(0, repo_path)" in phase6_code
+    assert "'lengths' in forward_parameters" in phase6_code

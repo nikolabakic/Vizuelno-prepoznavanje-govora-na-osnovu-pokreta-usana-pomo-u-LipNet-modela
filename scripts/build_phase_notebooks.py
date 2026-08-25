@@ -1411,9 +1411,10 @@ def phase6() -> nbf.NotebookNode:
                 check=True,
             )
             """),
-            code(repo_setup_cell()),
+            code(repo_setup_cell(refresh_imports=True)),
             code("""
             import hashlib
+            import inspect
             import json
             import math
 
@@ -1422,12 +1423,20 @@ def phase6() -> nbf.NotebookNode:
             import torch
             import torch.nn.functional as F
 
+            from lipnet.model import LipNet
+
+            forward_parameters = inspect.signature(LipNet.forward).parameters
+            assert 'lengths' in forward_parameters, (
+                'Učitana LipNet klasa nije length-aware. Ponovo pokreni Setup ćelije; '
+                f'model={inspect.getfile(LipNet)}, signature={inspect.signature(LipNet.forward)}'
+            )
             assert torch.cuda.is_available(), 'Uključi T4 GPU u Colab Runtime postavkama.'
             DEVICE = torch.device('cuda')
             torch.manual_seed(0)
             torch.cuda.manual_seed_all(0)
             torch.backends.cudnn.benchmark = False
             torch.backends.cudnn.deterministic = True
+            print('LipNet:', inspect.getfile(LipNet), inspect.signature(LipNet.forward))
             print('GPU:', torch.cuda.get_device_name(0))
             """),
             code(drive_setup_cell()),
