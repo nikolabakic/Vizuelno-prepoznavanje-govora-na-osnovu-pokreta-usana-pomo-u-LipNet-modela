@@ -14,27 +14,28 @@ testovi i dokumentacija.
 - [Audit postojećih rezultata](docs/provera-rezultata.md)
 - [Originalni tekst zadatka](36%20Vizuelno%20prepoznavanje%20govora%20na.txt)
 
-## Važan status rezultata
+## Status rezultata
 
-Sačuvani izlazi starih notebookova pokazali su da su preprocessing, Dataset i
-transfer checkpoint-a bili pokrenuti, ali završne Phase 5 metrike nisu bezbedne
-za citiranje. Stari trening je obrađivao padded vremenske korake kroz
-bidirekcioni GRU, notebook nije bio izvršen redom, a CER je poređen kroz dve
-različite agregacije.
+Length-aware Faze 4–6 završene su na NVIDIA L4 nad zamrznutim
+`ai_speak_lip.zip` artefaktom. Potvrđeni baseline na 540 speaker-disjoint test
+uzoraka ima WER `0.4524691358`, CER `0.1823867262` i sentence exact match `0.0`.
+Faza 6 je pre eksperimenata bit-po-metrici reprodukovala taj rezultat.
 
-Ispravljena verzija:
+Aktivna verzija:
 
 - maskira padded vreme posle svakog 3D CNN bloka;
 - koristi `pack_padded_sequence` u oba BiGRU sloja;
 - računa corpus-level WER/CER iz ukupnih edit grešaka i ukupnog broja
   referentnih reči/karaktera;
-- koristi novi Drive folder `phase5_length_aware_v2`, pa ne nastavlja stare,
-  nekompatibilne checkpoint-e;
+- koristi Drive folder `phase5_length_aware_v2` i checkpoint SHA-256
+  `203c2707b5c327c8b164ab573f5550390def3aacf0ff190fc9bd760745e2f9c8`;
 - u Fazi 6 ponovo računa baseline i zahteva tačno poklapanje sa Phase 5
   rezultatom pre eksperimenata.
 
-Zato notebookove 04–06 treba ponovo pokrenuti na GPU-u. Detalji i stari
-observirani brojevi nalaze se u [auditu rezultata](docs/provera-rezultata.md).
+Sanitizovani, mali JSON artefakti su u [docs/results](docs/results), a istorija
+starih nevalidnih run-ova i objašnjenje ispravke ostaju u
+[auditu rezultata](docs/provera-rezultata.md). Osmočasovni BlazeFace preprocessing
+se ne ponavlja: Faze 3–7 samo raspakuju postojeći Drive ZIP.
 
 ## Notebookovi — pokretati redom
 
@@ -54,6 +55,10 @@ observirani brojevi nalaze se u [auditu rezultata](docs/provera-rezultata.md).
 7. [06 — robustnost ulaza](playground/06_faza_6_robustness_experiments.ipynb):
    ponovna baseline provera i eksperimenti rezolucije, blur-a i crop pomeranja
    nad istim checkpoint-om/test splitom (GPU).
+8. [07 — CTC decoder](playground/07_faza_7_decoder_search.ipynb): greedy naspram
+   prefix beam search-a bez LM-a i sa train-only karakternim 5-gram LM-om;
+   validation izbor, jedna test evaluacija, bootstrap i analiza pozicija (GPU
+   samo za jednokratni cache logit-a).
 
 Notebookovi su generisani iz [scripts/build_phase_notebooks.py](scripts/build_phase_notebooks.py).
 Ne menjati njihov JSON ručno; menjati generator i ponovo ga pokrenuti.
@@ -85,10 +90,11 @@ uv run python scripts/build_phase_notebooks.py
 uv run pytest -q
 ```
 
-GPU, AI-SPEAK podaci i Google Drive nisu potrebni za 18 lokalnih testova. Testovi
+GPU, AI-SPEAK podaci i Google Drive nisu potrebni za 33 lokalna testa. Testovi
 pokrivaju parser/vokabular, split, promenljivi batch, strict transfer,
 checkpoint restore, corpus metrike, checkpoint round-trip i invariancu kraćeg
-klipa kada je sam ili u padded batch-u.
+klipa kada je sam ili u padded batch-u, kao i egzaktno CTC prefix beam
+dekodiranje, 5-gram LM, paired bootstrap i analizu grešaka po pozicijama.
 
 ## Struktura
 
@@ -97,7 +103,8 @@ lipnet/                         VIPL model, Dataset, preprocessing i trening
 scripts/prepare_ai_speak.py     MP4 -> mouth JPEG + log/checkpoint/QA
 scripts/build_phase_notebooks.py
 data/splits.py                  verzionisani speaker-disjoint split
-playground/00_...06_...         reproduktivni Colab notebookovi bez stale output-a
+playground/00_...07_...         reproduktivni Colab notebookovi
+docs/results/                    sanitizovani auditi i potvrđene metrike
 docs/                           roadmap, upstream evidencija i rezultat audit
 tests/                          CPU testovi
 ```

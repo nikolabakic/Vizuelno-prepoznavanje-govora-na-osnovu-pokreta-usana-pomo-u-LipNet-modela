@@ -176,8 +176,9 @@ def test_phase_notebook_sources_match_generator() -> None:
         build_phase_notebooks.phase4,
         build_phase_notebooks.phase5,
         build_phase_notebooks.phase6,
+        build_phase_notebooks.phase7,
     )
-    for phase in range(7):
+    for phase in range(8):
         path = next((root / "playground").glob(f"{phase:02d}_*.ipynb"))
         notebook = nbformat.read(path, as_version=4)
         generated = builders[phase]()
@@ -228,3 +229,24 @@ def test_phase_notebook_sources_match_generator() -> None:
     assert "if name == 'lipnet' or name.startswith('lipnet.')" in phase6_code
     assert "sys.path.insert(0, repo_path)" in phase6_code
     assert "'lengths' in forward_parameters" in phase6_code
+
+    phase2 = nbformat.read(
+        root / "playground/02_faza_2_ai_speak_preprocessing.ipynb", as_version=4
+    )
+    phase2_code = "\n".join(
+        cell.source for cell in phase2.cells if cell.cell_type == "code"
+    )
+    assert "RUN_SMOKE_PREPROCESSING = False" in phase2_code
+    assert "RUN_FULL_PREPROCESSING = False" in phase2_code
+
+    phase7 = nbformat.read(
+        root / "playground/07_faza_7_decoder_search.ipynb", as_version=4
+    )
+    phase7_code = "\n".join(
+        cell.source for cell in phase7.cells if cell.cell_type == "code"
+    )
+    assert "CharacterNGramLM" in phase7_code
+    assert "train_token_sequences" in phase7_code
+    assert "paired_bootstrap_delta" in phase7_code
+    assert "phase5_results['best_checkpoint_sha256'] == checkpoint_sha256" in phase7_code
+    assert "candidate.get('split_signatures') == split_signatures" in phase7_code

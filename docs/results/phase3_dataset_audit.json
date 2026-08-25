@@ -1,0 +1,32 @@
+{
+  "phase": 3,
+  "num_classes": 29,
+  "train_samples": 2877,
+  "samples_by_split": {
+    "train": 2877,
+    "validation": 540,
+    "test": 540
+  },
+  "batch_shape": [
+    2,
+    3,
+    132,
+    64,
+    128
+  ],
+  "vid_len": [
+    130,
+    132
+  ],
+  "txt_len": [
+    27,
+    30
+  ],
+  "keys": [
+    "txt",
+    "txt_len",
+    "vid",
+    "vid_len"
+  ]
+}
+
