@@ -103,11 +103,12 @@ def repo_setup_cell(*, refresh_imports: bool = False) -> str:
     """
 
 
-def drive_setup_cell() -> str:
-    return """
+def drive_setup_cell(*, force_remount: bool = False) -> str:
+    force_argument = ", force_remount=True" if force_remount else ""
+    return f"""
     from google.colab import drive
 
-    drive.mount('/content/drive')
+    drive.mount('/content/drive'{force_argument})
     DRIVE_ROOT = Path('/content/drive/MyDrive/LipNet')
     DRIVE_ROOT.mkdir(parents=True, exist_ok=True)
     print('Drive izlaz:', DRIVE_ROOT)
@@ -2161,6 +2162,7 @@ def phase8() -> nbf.NotebookNode:
             import hashlib
             import json
             import math
+            import shutil
             import zipfile
             from pathlib import Path
 
@@ -2180,7 +2182,7 @@ def phase8() -> nbf.NotebookNode:
             torch.backends.cudnn.deterministic = True
             print('GPU:', torch.cuda.get_device_name(0))
             """),
-            code(drive_setup_cell()),
+            code(drive_setup_cell(force_remount=True)),
             code("""
             REPORT_DIR = DRIVE_ROOT / 'phase8_report'
             REPORT_DIR.mkdir(parents=True, exist_ok=True)
@@ -2267,29 +2269,53 @@ def phase8() -> nbf.NotebookNode:
             ### 4. Učitaj zamrznute frejmove i anotacije
 
             Raspakuju se samo postojeći artefakti. Detekcija lica i preprocessing se
-            ne pokreću ponovo.
+            ne pokreću ponovo. ZIP arhive se prvo kopiraju na lokalni Colab disk da
+            raspakivanje ne zavisi od nestabilnog nasumičnog čitanja Drive mount-a.
             """),
             code("""
             MOUTH_ARCHIVE = DRIVE_ROOT / 'ai_speak_lip.zip'
             SOURCE_ARCHIVE = Path('/content/drive/MyDrive/processed.zip')
+            LOCAL_MOUTH_ARCHIVE = Path('/content/ai_speak_lip.zip')
+            LOCAL_SOURCE_ARCHIVE = Path('/content/processed.zip')
             MOUTH_ROOT = Path('/content/ai_speak_lip')
             ALIGN_EXTRACT = Path('/content/ai_speak_align')
             assert MOUTH_ARCHIVE.exists(), MOUTH_ARCHIVE
             assert SOURCE_ARCHIVE.exists(), SOURCE_ARCHIVE
 
+            def stage_drive_archive(source, destination):
+                try:
+                    source_size = source.stat().st_size
+                    if not destination.exists() or destination.stat().st_size != source_size:
+                        print(f'Kopiram {source.name} na lokalni Colab disk...')
+                        shutil.copyfile(source, destination)
+                    assert destination.stat().st_size == source_size
+                    assert zipfile.is_zipfile(destination), f'Neispravan ZIP: {destination}'
+                    return destination
+                except OSError as error:
+                    if getattr(error, 'errno', None) == 107:
+                        raise RuntimeError(
+                            'Google Drive veza je prekinuta. Ponovo pokreni Drive mount '
+                            'ćeliju iznad, pa zatim ponovi ovu ćeliju.'
+                        ) from error
+                    raise
+
             if not next(MOUTH_ROOT.glob('spk*/video/video_a/*'), None):
                 MOUTH_ROOT.mkdir(parents=True, exist_ok=True)
-                with zipfile.ZipFile(MOUTH_ARCHIVE) as archive:
+                local_archive = stage_drive_archive(MOUTH_ARCHIVE, LOCAL_MOUTH_ARCHIVE)
+                with zipfile.ZipFile(local_archive) as archive:
                     archive.extractall(MOUTH_ROOT)
+                local_archive.unlink()
             if not next(ALIGN_EXTRACT.rglob('spk*/alignment/*.align'), None):
                 ALIGN_EXTRACT.mkdir(parents=True, exist_ok=True)
-                with zipfile.ZipFile(SOURCE_ARCHIVE) as archive:
+                local_archive = stage_drive_archive(SOURCE_ARCHIVE, LOCAL_SOURCE_ARCHIVE)
+                with zipfile.ZipFile(local_archive) as archive:
                     members = [
                         member for member in archive.infolist()
                         if '/alignment/' in f'/{member.filename}'
                         and member.filename.endswith('.align')
                     ]
                     archive.extractall(ALIGN_EXTRACT, members=members)
+                local_archive.unlink()
             CORPUS_ROOT = next(ALIGN_EXTRACT.rglob('spk*/alignment/*.align')).parents[2]
             print('Mouth frejmovi:', MOUTH_ROOT)
             print('Anotacije:', CORPUS_ROOT)
