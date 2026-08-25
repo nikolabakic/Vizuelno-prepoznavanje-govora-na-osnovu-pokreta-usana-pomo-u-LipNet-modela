@@ -48,13 +48,16 @@ intervalom poverenja od -4,81 do -3,30 procentnih poena. Rezultatni i prediction
 artefakt dostupni su direktno u ovom folderu, dok su njihove izvorne kopije i
 grafikon `decoder_metrics_v1.png` sačuvani uz checkpoint na Google Drive-u.
 
-## Faza 08 — figure za izveštaj
+## Faza 08 — završna konsolidacija
 
-Konsolidovani notebook 08 koristi gornje sanitizovane artefakte i čuva sedam
-izvedenih PNG prikaza u `MyDrive/LipNet/phase8_report/`. Figure se ne tretiraju
-kao novi eksperiment: dataset, robustnost i decoder vrednosti dolaze iz Faza
-03–07, dok se slot-konfuzije i kvalitativni primeri računaju iz sačuvanih 540
-test predikcija. Status završnog Colab izvršavanja prati se u
+Konsolidovani notebook 08 izvršen je na NVIDIA L4 i završio je proverom `PASS`.
+Koristi gornje sanitizovane artefakte i čuva sedam izvedenih PNG prikaza u
+`MyDrive/LipNet/phase8_report/`. Figure se ne tretiraju kao novi eksperiment:
+dataset, robustnost i decoder vrednosti dolaze iz Faza 03–07, dok se
+slot-konfuzije i kvalitativni primeri računaju iz sačuvanih 540 test predikcija.
+
+Verzionisane kopije figura nalaze se u [`report/assets`](../../report/README.md#slike),
+a detaljan trag završne provere u
 [`docs/provera-rezultata.md`](../provera-rezultata.md).
 
 ## Poreklo i integritet

@@ -4,11 +4,12 @@ Datum revizije: 25. avgust 2026.
 
 ## Status implementacije
 
-Kod i Colab notebookovi za Faze 0–8 su pripremljeni. Eksperimentalni tok Faza
-0–7 izvršen je i potvrđen na NVIDIA L4, dok Fazu 8 još treba izvršiti na Colab
-GPU-u i vratiti sa outputima. Lokalna provera obuhvata 34 testa. Sanitizovani
+Kod i Colab notebookovi za Faze 0–8 su završeni. Eksperimentalni tok Faza 0–8
+izvršen je i potvrđen na NVIDIA L4; izvršeni notebook 08 vraćen je sa outputima
+i završnim `PASS` rezultatom. Lokalna provera obuhvata 34 testa. Sanitizovani
 rezultati Faza 03–07, uključujući decoder metrike i test predikcije, nalaze se u
-[docs/results](results). BlazeFace preprocessing se ne ponavlja.
+[docs/results](results), a finalni PDF/HTML i figure u [`report`](../report/README.md).
+BlazeFace preprocessing se ne ponavlja.
 
 | Faza | Kod/notebook | Izvršni status |
 |---:|---|---|
@@ -20,7 +21,7 @@ rezultati Faza 03–07, uključujući decoder metrike i test predikcije, nalaze 
 | 5 | length-aware fine-tuning, resume, best-WER izbor i test | potvrđeno, best checkpoint zaključan SHA-256 hashom |
 | 6 | rezolucija, blur, crop pomeranje i baseline recheck | potvrđeno nad 540 test uzoraka |
 | 7 | greedy/beam/5-gram decoder poređenje | potvrđeno nad 540 test uzoraka; WER 0,4120 sa LM-om |
-| 8 | konsolidovani notebook za odbranu | implementiran i lokalno validiran; čeka završni Colab GPU run |
+| 8 | konsolidovani notebook za odbranu | izvršen na L4; svih 18 kodnih ćelija i završna `PASS` provera sačuvani |
 
 ## 1. Nova odluka
 
@@ -300,11 +301,11 @@ transkripti nisu korišćeni za fit jezičkog modela.
 `0,146969`; kompletni rezultati su u
 [`decoder_results_v1.json`](results/decoder_results_v1.json).
 
-### Faza 8 — Konsolidovani Colab notebook pre izveštaja
+### Faza 8 — Konsolidovani Colab notebook za odbranu
 
 **Cilj:** omogućiti odbranu projekta iz jednog proverljivog toka.
 
-Implementirani notebook:
+Izvršeni notebook:
 
 - montira Drive, proverava GPU i SHA-256 zaključanog checkpoint-a;
 - učitava i validira JSON artefakte Faza 03–07;
@@ -320,9 +321,13 @@ Ne ponavlja GRID inference, preprocessing niti trening modela. Matrica iz
 teorijske prezentacije koristi se samo kao ilustracija originalnog LipNet rada
 na GRID-u, ne kao rezultat ovog projekta.
 
-**Status:** implementirano i lokalno validirano; potrebno je još izvršiti
-notebook na Colab GPU-u, potvrditi završne provere i vratiti verziju sa outputima.
-Nakon toga se piše finalni izveštaj.
+**Ishod:** notebook je izvršen do kraja na NVIDIA L4 i vraćen u repozitorijum sa
+outputima svih 18 kodnih ćelija. Demonstracija za test primer 42 potvrđuje
+referencu i beam+5-gram predikciju `potvrdi v gore ž nedelja šest`; greedy
+predikcija `potvrdi o gore nedelja šest` pokazuje problem sa izolovanim slovima.
+Završna ćelija prijavljuje `PASS` za checkpoint, GPU demonstraciju, metrike,
+bootstrap intervale i svih sedam figura. Finalni izveštaj je zatim završen i
+verzionisan u [`report`](../report/README.md).
 
 ## 7. Redosled zavisnosti
 

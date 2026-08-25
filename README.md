@@ -14,6 +14,13 @@ speaker-disjoint podeli AI-SPEAK korpusa.
 Finalni baseline je izabran prema validation WER-u i evaluiran jednom nad 540
 test primera govornika koji nisu korišćeni za trening.
 
+Eksperimentalni tok je završen kroz Fazu 08 i dokumentovan u izvršenom
+[`08_faza_8_konsolidovani_notebook.ipynb`](playground/08_faza_8_konsolidovani_notebook.ipynb).
+Finalni rad dostupan je kao
+[`PDF`](report/finalni-izvestaj-lipnet.pdf) i
+[`HTML`](report/finalni-izvestaj-lipnet.html), zajedno sa slikama korišćenim u
+izveštaju u folderu [`report/assets`](report/README.md#slike).
+
 | Metrika | Validation skup | Test skup |
 |---|---:|---:|
 | WER | 49,72% | **45,25%** |
@@ -84,6 +91,7 @@ korišćenja.
 | [`scripts/`](scripts/README.md) | preprocessing i generator notebookova |
 | [`docs/`](docs/README.md) | metodologija, tehničke odluke i potvrđeni rezultati |
 | [`tests/`](tests/README.md) | lokalni CPU testovi ključnih ugovora sistema |
+| [`report/`](report/README.md) | finalni izveštaj u PDF/HTML formatu i njegove slike |
 
 ## Reprodukcija eksperimenta
 
@@ -116,9 +124,10 @@ redosledom od `00` do `08`. Oni pokrivaju:
 8. konsolidaciju zaključanih rezultata, obaveznu GPU predikciju, slot-konfuzije
    i figure namenjene finalnom izveštaju.
 
-Notebook 08 ne ponavlja trening ni preprocessing. Pokreće se poslednji na Colab
-GPU-u, a izvršena verzija sa outputima vraća se u repozitorijum pre pisanja
-finalnog izveštaja.
+Notebook 08 ne ponavlja trening ni preprocessing. Izvršen je poslednji na Colab
+NVIDIA L4 GPU-u i vraćen u repozitorijum sa outputima. Završna provera u
+notebooku potvrđuje zajednički checkpoint, GPU demonstraciju, metrike, bootstrap
+intervale i svih sedam generisanih figura.
 
 Notebookovi su generisani skriptom
 [`scripts/build_phase_notebooks.py`](scripts/build_phase_notebooks.py). Izmene
@@ -141,15 +150,17 @@ repozitorijuma. Notebookovi očekuju sledeće podrazumevane Google Drive putanje
 /content/drive/MyDrive/LipNet/phase8_report/
 ```
 
-U repozitorijumu su verzionisani samo kod, notebookovi, dokumentacija i mali
-sanitizovani JSON rezultati. Na taj način eksperiment ostaje proverljiv bez
-objavljivanja privatnih ili identifikujućih podataka učesnika.
+U repozitorijumu su verzionisani kod, izvršeni notebookovi, dokumentacija, mali
+sanitizovani JSON rezultati i izvedene slike/finalni izveštaj. Privatni snimci,
+mouth frejmovi i checkpoint-i nisu objavljeni, pa eksperiment ostaje proverljiv
+bez identifikujućih podataka učesnika.
 
 ## Dodatna dokumentacija
 
 - [Metodologija i eksperimentalni roadmap](docs/analiza-i-roadmap.md)
 - [Potvrđeni rezultati i provera eksperimenta](docs/provera-rezultata.md)
 - [Veza sa izvornom VIPL implementacijom](docs/upstream-diff.md)
+- [Finalni izveštaj i slike](report/README.md)
 - [Originalni tekst projektnog zadatka](36%20Vizuelno%20prepoznavanje%20govora%20na.txt)
 
 Korišćena VIPL verzija je pinovana na commit

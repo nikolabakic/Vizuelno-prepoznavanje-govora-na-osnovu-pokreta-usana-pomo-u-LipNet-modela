@@ -2694,9 +2694,9 @@ def phase8() -> nbf.NotebookNode:
             - Paired bootstrap intervali za WER i CER ne obuhvataju nulu.
             - Semantički slotovi su znatno pouzdaniji od dve izolovane pozicije slova.
 
-            Eksperimentalni deo projekta je završen. Sledeći i poslednji korak je
-            pisanje finalnog izveštaja korišćenjem potvrđenih tabela i figura iz ovog
-            notebooka.
+            Eksperimentalni deo projekta je završen. Potvrđene tabele i figure iz
+            ovog notebooka ugrađene su u finalni izveštaj, koji je dostupan u PDF i
+            HTML formatu u folderu `report/`.
             """),
         ],
         gpu=True,

@@ -6,7 +6,7 @@ Datum završne revalidacije: 25. avgust 2026.
 
 ## Zaključak
 
-**Opšta ocena: rezultati Faza 03–07 su potvrđeni i spremni za finalni izveštaj.**
+**Opšta ocena: rezultati Faza 03–08 su potvrđeni, a finalni izveštaj je završen.**
 
 Prvi audit je otkrio da stari Phase 5 run nije bezbedan za citiranje. Nakon toga
 su model, metrike, checkpoint tok i notebookovi ispravljeni, a Faze 04–07
@@ -25,7 +25,7 @@ Stari brojevi u nastavku ostaju samo kao istorija razloga za revalidaciju.
 
 ## Kontrolni izvori
 
-- kod i izlazi sačuvani u izvršenim notebookovima 02–07;
+- kod i izlazi sačuvani u izvršenim notebookovima 02–08;
 - checkpoint/rezultat putanje prikazane u tim notebookovima na Google Drive-u;
 - lokalni testovi nad modelom, Dataset-om, treningom, dekoderom i evaluacijom;
 - pinovani VIPL commit
@@ -214,18 +214,33 @@ referenci i predikcija u
 ## Notebook 08 — konsolidacija za odbranu
 
 Notebook [`08_faza_8_konsolidovani_notebook.ipynb`](../playground/08_faza_8_konsolidovani_notebook.ipynb)
-je implementiran i lokalno validiran kao završni, read-only analitički korak. On
+je izvršen kao završni, read-only analitički korak. On
 ne trenira vizuelni model i ne ponavlja preprocessing: učitava artefakte Faza
 03–07, proverava njihov zajednički checkpoint, izvodi jednu obaveznu GPU
 predikciju i generiše sedam figura za izveštaj. Slot-konfuzije eksplicitno vode
 brisanja, a reči van očekivanog rečnika svrstavaju u `ostalo`.
 
-**Status:** kod i struktura notebooka su spremni; Colab GPU izvršavanje i vraćanje
-notebooka sa outputima još nisu obavljeni.
+Notebook sadrži output svih 18 kodnih ćelija sa NVIDIA L4. GPU demonstracija nad
+test primerom 42 daje referencu i beam+5-gram predikciju `potvrdi v gore ž
+nedelja šest`, dok greedy daje `potvrdi o gore nedelja šest`. Generisani su:
 
-## Status pre finalnog izveštaja
+1. `01_dataset_split.png`;
+2. `02_gpu_demo_mouth_frames.png`;
+3. `03_robustness.png`;
+4. `04_decoder_comparison.png`;
+5. `05_slot_accuracy.png`;
+6. `06_slot_confusion_matrices.png`;
+7. `07_letter_substitutions.png`.
 
-Eksperimentalne Faze 0–7 su završene, a Faza 08 je implementirana. Preostaje
-jedno završno Colab izvršavanje notebooka 08, provera svih sedam PNG izlaza i
-vraćanje izvršenog notebooka u repozitorijum. Posle toga nema dodatnih
-eksperimenata; jedini preostali korak je finalni izveštaj.
+**Status:** potvrđeno. Završna ćelija prijavljuje `PASS: checkpoint, GPU demo,
+metrike, intervali i figure su potvrđeni.` Kopije figura nalaze se u
+[`report/assets`](../report/README.md#slike).
+
+## Završni status
+
+Eksperimentalne Faze 0–8 su završene, izvršeni notebook 08 i svih sedam PNG
+izlaza su provereni, a finalni izveštaj je verzionisan kao
+[`PDF`](../report/finalni-izvestaj-lipnet.pdf) i
+[`HTML`](../report/finalni-izvestaj-lipnet.html). Dodatni prikaz istorije
+treninga nalazi se uz ostale slike izveštaja. Nema preostalih eksperimentalnih
+koraka.

@@ -61,12 +61,18 @@ sanitizovani rezultati koji se koriste u finalnom radu nalaze se u
 [`docs/results`](../docs/results/README.md). Detaljne podrazumevane Drive putanje
 navedene su u [glavnom README-u](../README.md#podaci-i-artefakti).
 
-## Završna faza 08
+## Rezultat faze 08
 
 Notebook 08 učitava i međusobno proverava JSON artefakte Faza 03–07, proverava
 SHA-256 zaključanog `best.pt` checkpoint-a i obavezno izvršava predikciju za test
 primer indeksa 42 na GPU-u. Jezički model se fituje samo nad 2.877 train
 transkripata; validation i test transkripti služe isključivo za evaluaciju.
+
+Notebook je izvršen do kraja na NVIDIA L4: svih 18 kodnih ćelija sadrži output,
+a završna provera prijavljuje `PASS` za checkpoint, GPU demonstraciju, metrike,
+bootstrap intervale i figure. Na demonstracionom primeru 42 beam+5-gram izlaz
+tačno reprodukuje referencu `potvrdi v gore ž nedelja šest`, dok greedy izlaz
+izostavlja oba izolovana slova.
 
 Pored prikaza u notebooku, sedam PNG figura čuva se u
 `MyDrive/LipNet/phase8_report/`: podela skupa, mouth frejmovi demonstracije,
@@ -75,11 +81,18 @@ normalizovane matrice konfuzije i najčešće zamene izolovanih slova. Matrica i
 teorijske prezentacije ostaje ilustracija originalnog LipNet rada na GRID-u i ne
 predstavlja rezultat ovog projekta.
 
+Kopije ovih figura nalaze se u [`report/assets`](../report/README.md#slike), uz
+dodatni prikaz istorije treninga. Finalni
+[`PDF`](../report/finalni-izvestaj-lipnet.pdf) i
+[`HTML`](../report/finalni-izvestaj-lipnet.html) izveštaj takođe su verzionisani.
+
 Generator pravi samo ovaj notebook naredbom:
 
 ```powershell
 uv run python scripts/build_phase_notebooks.py --phase 8
 ```
 
-Nakon uspešnog Colab izvršavanja, notebook sa outputima treba preuzeti i zameniti
-verziju u ovom folderu. Sledeći i poslednji korak je finalni izveštaj.
+Naredbu za generisanje koristiti samo kada se menja izvor notebooka: ona pravi
+novu, neizvršenu verziju, pa bi postojeći Colab output trebalo sačuvati ili potom
+ponovo izvršiti notebook. Trenutna verzija u ovom folderu predstavlja završeni
+Colab run korišćen za finalni izveštaj.
