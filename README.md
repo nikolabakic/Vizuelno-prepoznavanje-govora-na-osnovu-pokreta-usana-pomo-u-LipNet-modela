@@ -1,71 +1,110 @@
-# Vizuelno prepoznavanje govora pomoću LipNet modela
+# Vizuelno prepoznavanje srpskog govora pomoću LipNet modela
 
-Studentski projekat iz predmeta Mašinsko učenje 2. Projekat reprodukuje pinovanu
-VIPL LipNet implementaciju, prilagođava je srpskom delu AI-SPEAK korpusa i meri
-uticaj rezolucije, blur-a i pomeranja mouth crop-a.
+Ovaj repozitorijum sadrži kompletan eksperimentalni pipeline za vizuelno
+prepoznavanje srpskog govora: od izdvajanja regiona usana iz AI-SPEAK snimaka,
+preko prilagođavanja i treniranja LipNet modela, do evaluacije tačnosti i
+robustnosti. Projekat je realizovan u okviru predmeta **Mašinsko učenje 2**.
 
-Aktivni tok je zasnovan na VIPL commit-u
-`40209e09c49553c00c25c7d41faa3706aea3c625`. Veliki i privatni podaci ostaju
-na Google Drive-u; u Git-u su samo kod, prazni reproduktivni notebookovi,
-testovi i dokumentacija.
+Osnova rešenja je [VIPL LipNet implementacija](https://github.com/VIPL-Audio-Visual-Speech-Understanding/LipNet-PyTorch),
+prilagođena srpskom skupu karaktera, promenljivim dužinama video-sekvenci i
+speaker-disjoint podeli AI-SPEAK korpusa.
 
-- [Roadmap i kriterijumi](docs/analiza-i-roadmap.md)
-- [VIPL odstupanja](docs/upstream-diff.md)
-- [Audit postojećih rezultata](docs/provera-rezultata.md)
-- [Originalni tekst zadatka](36%20Vizuelno%20prepoznavanje%20govora%20na.txt)
+## Rezultat rada
 
-## Status rezultata
+Finalni baseline je izabran prema validation WER-u i evaluiran jednom nad 540
+test primera govornika koji nisu korišćeni za trening.
 
-Length-aware Faze 4–6 završene su na NVIDIA L4 nad zamrznutim
-`ai_speak_lip.zip` artefaktom. Potvrđeni baseline na 540 speaker-disjoint test
-uzoraka ima WER `0.4524691358`, CER `0.1823867262` i sentence exact match `0.0`.
-Faza 6 je pre eksperimenata bit-po-metrici reprodukovala taj rezultat.
+| Metrika | Validation skup | Test skup |
+|---|---:|---:|
+| WER | 49,72% | **45,25%** |
+| CER | 22,02% | **18,24%** |
+| Broj primera | 540 | 540 |
 
-Aktivna verzija:
+Eksperimenti robustnosti pokazuju da model zadržava sličan rezultat pri manjoj
+rezoluciji, blagom zamućenju i malom pomeranju regiona usana:
 
-- maskira padded vreme posle svakog 3D CNN bloka;
-- koristi `pack_padded_sequence` u oba BiGRU sloja;
-- računa corpus-level WER/CER iz ukupnih edit grešaka i ukupnog broja
-  referentnih reči/karaktera;
-- koristi Drive folder `phase5_length_aware_v2` i checkpoint SHA-256
-  `203c2707b5c327c8b164ab573f5550390def3aacf0ff190fc9bd760745e2f9c8`;
-- u Fazi 6 ponovo računa baseline i zahteva tačno poklapanje sa Phase 5
-  rezultatom pre eksperimenata.
+| Uslov | WER | Promena WER-a |
+|---|---:|---:|
+| Baseline, 128 × 64 | **45,25%** | — |
+| Rezolucija 96 × 48 | 45,77% | +0,52 p.p. |
+| Rezolucija 64 × 32 | 45,90% | +0,65 p.p. |
+| Gaussian blur | 45,96% | +0,71 p.p. |
+| Pomeranje crop-a | 45,34% | +0,09 p.p. |
 
-Sanitizovani, mali JSON artefakti su u [docs/results](docs/results), a istorija
-starih nevalidnih run-ova i objašnjenje ispravke ostaju u
-[auditu rezultata](docs/provera-rezultata.md). Osmočasovni BlazeFace preprocessing
-se ne ponavlja: Faze 3–7 samo raspakuju postojeći Drive ZIP.
+Mašinski čitljivi rezultati i tačna konfiguracija eksperimenta nalaze se u
+folderu [`docs/results`](docs/results/README.md).
 
-## Notebookovi — pokretati redom
+## Kako sistem radi
 
-1. [00 — upstream restart](playground/00_faza_0_upstream_restart.ipynb): pin,
-   licenca i inventar (CPU).
-2. [01 — GRID parity](playground/01_faza_1_grid_parity.ipynb): originalni i
-   lokalni VIPL inference na istom primeru (GPU).
-3. [02 — AI-SPEAK preprocessing](playground/02_faza_2_ai_speak_preprocessing.ipynb):
-   MP4 u VIPL mouth JPEG foldere, checkpoint restore i QA (GPU).
-4. [03 — srpski Dataset](playground/03_faza_3_serbian_dataset.ipynb): parser,
-   speaker-disjoint split, potpunost parova i promenljivi batch (CPU).
-5. [04 — transfer i CTC smoke](playground/04_faza_4_transfer_ctc_smoke.ipynb):
-   29-klasni head, transfer audit i backward (GPU).
-6. [05 — baseline fine-tuning](playground/05_faza_5_baseline_finetuning.ipynb):
-   length-aware trening, resume, izbor prema validation WER-u i jedna test
-   evaluacija (GPU).
-7. [06 — robustnost ulaza](playground/06_faza_6_robustness_experiments.ipynb):
-   ponovna baseline provera i eksperimenti rezolucije, blur-a i crop pomeranja
-   nad istim checkpoint-om/test splitom (GPU).
-8. [07 — CTC decoder](playground/07_faza_7_decoder_search.ipynb): greedy naspram
-   prefix beam search-a bez LM-a i sa train-only karakternim 5-gram LM-om;
-   validation izbor, jedna test evaluacija, bootstrap i analiza pozicija (GPU
-   samo za jednokratni cache logit-a).
+```mermaid
+flowchart LR
+    A[AI-SPEAK MP4] --> B[Detekcija lica i poravnanje]
+    B --> C[ROI usana 128 × 64]
+    C --> D[3D CNN]
+    D --> E[Dvosmerni GRU]
+    E --> F[CTC dekodiranje]
+    F --> G[Predikcija teksta]
+```
 
-Notebookovi su generisani iz [scripts/build_phase_notebooks.py](scripts/build_phase_notebooks.py).
-Ne menjati njihov JSON ručno; menjati generator i ponovo ga pokrenuti.
+Model koristi tri 3D konvoluciona bloka za prostorno-vremenske karakteristike,
+dva BiGRU sloja za modelovanje sekvence i CTC izlaz nad 29 klasa. Padding se
+maskira kroz mrežu, a realne dužine sekvenci koriste se i u BiGRU slojevima i
+pri dekodiranju.
 
-## Google Drive ulazi i izlazi
+## Struktura repozitorijuma
 
-Podrazumevane putanje su:
+Svaki važan folder ima sopstveni README sa detaljima o sadržaju i načinu
+korišćenja.
+
+| Putanja | Sadržaj |
+|---|---|
+| [`lipnet/`](lipnet/README.md) | model, Dataset adapter, trening, dekoder i evaluacija |
+| [`data/`](data/README.md) | verzionisana speaker-disjoint podela skupa |
+| [`playground/`](playground/README.md) | reproduktivni Google Colab notebookovi, faze 0–7 |
+| [`scripts/`](scripts/README.md) | preprocessing i generator notebookova |
+| [`docs/`](docs/README.md) | metodologija, tehničke odluke i potvrđeni rezultati |
+| [`tests/`](tests/README.md) | lokalni CPU testovi ključnih ugovora sistema |
+
+## Reprodukcija eksperimenta
+
+### 1. Lokalno okruženje
+
+Preporučen je Python 3.12 i [uv](https://docs.astral.sh/uv/).
+
+```powershell
+git clone https://github.com/nikolabakic/Vizuelno-prepoznavanje-govora-na-osnovu-pokreta-usana-pomo-u-LipNet-modela.git
+cd Vizuelno-prepoznavanje-govora-na-osnovu-pokreta-usana-pomo-u-LipNet-modela
+uv sync --frozen --all-groups
+uv run pytest -q
+```
+
+Lokalni testovi ne zahtevaju GPU niti pristup AI-SPEAK podacima.
+
+### 2. Eksperimentalni pipeline
+
+Notebookove iz foldera [`playground`](playground/README.md) treba pokretati
+redosledom od `00` do `07`. Oni pokrivaju:
+
+1. proveru izvornog VIPL modela i GRID inference-a;
+2. pripremu AI-SPEAK snimaka i izdvajanje regiona usana;
+3. srpski Dataset, vokabular i speaker-disjoint split;
+4. transfer VIPL težina i proveru CTC treninga;
+5. fine-tuning i izbor najboljeg checkpoint-a;
+6. eksperimente robustnosti ulaza;
+7. poređenje greedy i prefix beam CTC dekodiranja.
+
+Notebookovi su generisani skriptom
+[`scripts/build_phase_notebooks.py`](scripts/build_phase_notebooks.py). Izmene
+se unose u generator, nakon čega se notebookovi ponovo generišu:
+
+```powershell
+uv run python scripts/build_phase_notebooks.py
+```
+
+## Podaci i artefakti
+
+Veliki podaci, video-snimci, frejmovi usana i checkpoint-i čuvaju se van Git
+repozitorijuma. Notebookovi očekuju sledeće podrazumevane Google Drive putanje:
 
 ```text
 /content/drive/MyDrive/processed.zip
@@ -74,41 +113,17 @@ Podrazumevane putanje su:
 /content/drive/MyDrive/LipNet/phase5_length_aware_v2/
 ```
 
-Ako je `processed.zip` na drugom mestu, promeniti samo `ZIP_ON_DRIVE` ili
-`SOURCE_ARCHIVE` ćeliju. Faza 2 kopira arhivu u `/content` pre obrade; ne
-obrađuje hiljade fajlova direktno sa montiranog Drive-a. Završno arhiviranje je
-blokirano dok korisnik eksplicitno ne postavi `MANUAL_QA_PASSED = True` posle
-pregleda QA slike.
+U repozitorijumu su verzionisani samo kod, notebookovi, dokumentacija i mali
+sanitizovani JSON rezultati. Na taj način eksperiment ostaje proverljiv bez
+objavljivanja privatnih ili identifikujućih podataka učesnika.
 
-## Lokalna provera
+## Dodatna dokumentacija
 
-Potrebni su Python 3.12 i [uv](https://docs.astral.sh/uv/):
+- [Metodologija i eksperimentalni roadmap](docs/analiza-i-roadmap.md)
+- [Potvrđeni rezultati i provera eksperimenta](docs/provera-rezultata.md)
+- [Veza sa izvornom VIPL implementacijom](docs/upstream-diff.md)
+- [Originalni tekst projektnog zadatka](36%20Vizuelno%20prepoznavanje%20govora%20na.txt)
 
-```powershell
-uv sync --frozen --all-groups
-uv run python scripts/build_phase_notebooks.py
-uv run pytest -q
-```
-
-GPU, AI-SPEAK podaci i Google Drive nisu potrebni za 33 lokalna testa. Testovi
-pokrivaju parser/vokabular, split, promenljivi batch, strict transfer,
-checkpoint restore, corpus metrike, checkpoint round-trip i invariancu kraćeg
-klipa kada je sam ili u padded batch-u, kao i egzaktno CTC prefix beam
-dekodiranje, 5-gram LM, paired bootstrap i analizu grešaka po pozicijama.
-
-## Struktura
-
-```text
-lipnet/                         VIPL model, Dataset, preprocessing i trening
-scripts/prepare_ai_speak.py     MP4 -> mouth JPEG + log/checkpoint/QA
-scripts/build_phase_notebooks.py
-data/splits.py                  verzionisani speaker-disjoint split
-playground/00_...07_...         reproduktivni Colab notebookovi
-docs/results/                    sanitizovani auditi i potvrđene metrike
-docs/                           roadmap, upstream evidencija i rezultat audit
-tests/                          CPU testovi
-```
-
-Ne slati u Git `processed.zip`, raspakovane snimke, mouth frejmove,
-checkpoint-e, QA slike sa identitetom učesnika niti Drive rezultate. Pravila za
-te fajlove su u `.gitignore`.
+Korišćena VIPL verzija je pinovana na commit
+`40209e09c49553c00c25c7d41faa3706aea3c625`; pripadajuća licenca nalazi se u
+[`lipnet/LICENSE.vipl`](lipnet/LICENSE.vipl).

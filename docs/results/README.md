@@ -1,23 +1,47 @@
-# Potvrđeni artefakti pre finalnog izveštaja
+# Rezultati eksperimenta
 
-Ovaj folder sadrži male, sanitizovane JSON kopije rezultata sa Google Drive-a.
-Privatni video, mouth frejmovi i checkpoint-i nisu kopirani u Git.
+Ovaj folder sadrži male, sanitizovane JSON artefakte koji predstavljaju
+proverene ulaze i rezultate finalnog eksperimentalnog pipeline-a. Privatni
+video-snimci, mouth frejmovi i checkpoint-i ostaju van Git repozitorijuma.
 
-| Fajl | Poreklo | Status |
-|---|---|---|
-| `phase3_dataset_audit.json` | `MyDrive/LipNet/phase3_dataset_audit.json` | potvrđeno |
-| `phase4_transfer_ctc_audit.json` | `MyDrive/LipNet/phase4_transfer_ctc_audit.json` | potvrđeno |
-| `phase5_results.json` | `MyDrive/LipNet/phase5_length_aware_v2/results.json` | potvrđeno |
-| `phase6_robustness_results.json` | `MyDrive/LipNet/phase5_length_aware_v2/robustness_results.json` | potvrđeno |
+## Sadržaj
 
-Phase 5 i Phase 6 fajlovi navode isti checkpoint SHA-256:
+| Fajl | Sadržaj |
+|---|---|
+| [`phase3_dataset_audit.json`](phase3_dataset_audit.json) | veličine splitova, broj klasa i provera variable-length batch-a |
+| [`phase4_transfer_ctc_audit.json`](phase4_transfer_ctc_audit.json) | transfer VIPL težina, oblik izlaza i CTC backward provera |
+| [`phase5_results.json`](phase5_results.json) | konfiguracija treninga, validation/test metrike i primeri predikcija |
+| [`phase6_robustness_results.json`](phase6_robustness_results.json) | rezultati za rezoluciju, blur i pomeranje regiona usana |
+
+## Glavne metrike
+
+| Eksperiment | WER | CER |
+|---|---:|---:|
+| Validation baseline | 49,72% | 22,02% |
+| Test baseline | **45,25%** | **18,24%** |
+| 96 × 48 | 45,77% | 18,59% |
+| 64 × 32 | 45,90% | 18,70% |
+| Gaussian blur | 45,96% | 18,73% |
+| Pomeranje crop-a | 45,34% | 18,34% |
+
+WER i CER su corpus-level metrike: edit greške se sabiraju nad celim skupom, a
+zatim dele ukupnim brojem referentnih reči, odnosno karaktera.
+
+## Poreklo i integritet
+
+| Lokalni fajl | Google Drive izvor |
+|---|---|
+| `phase3_dataset_audit.json` | `MyDrive/LipNet/phase3_dataset_audit.json` |
+| `phase4_transfer_ctc_audit.json` | `MyDrive/LipNet/phase4_transfer_ctc_audit.json` |
+| `phase5_results.json` | `MyDrive/LipNet/phase5_length_aware_v2/results.json` |
+| `phase6_robustness_results.json` | `MyDrive/LipNet/phase5_length_aware_v2/robustness_results.json` |
+
+Trening i eksperimenti robustnosti koriste isti izabrani checkpoint:
 
 ```text
-203c2707b5c327c8b164ab573f5550390def3aacf0ff190fc9bd760745e2f9c8
+SHA-256: 203c2707b5c327c8b164ab573f5550390def3aacf0ff190fc9bd760745e2f9c8
 ```
 
-Faza 7 će na Drive-u napraviti `decoder_results_v1.json` i
-`decoder_predictions_v1.json`. Nakon uspešnog greedy baseline `assert`-a i
-validation-only izbora decoder parametara, sanitizovana kopija rezultata treba
-da se doda ovde. To je poslednji numerički korak pre konsolidovanog notebooka i
-kasnijeg finalnog izveštaja.
+Baseline u eksperimentu robustnosti ponovo je izračunat pre perturbacija i
+poklapa se sa rezultatom iz faze 5. Širi trag provere dostupan je u
+[`docs/provera-rezultata.md`](../provera-rezultata.md).
