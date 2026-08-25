@@ -1,0 +1,310 @@
+<!doctype html>
+<html lang="sr-Latn">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Vizuelno prepoznavanje srpskog govora pomoću adaptiranog LipNet modela</title>
+  <style>
+    @page { size: A4; margin: 16mm 18mm 18mm; }
+    * { box-sizing: border-box; }
+    html { background: #ececec; }
+    body {
+      width: 174mm;
+      margin: 0 auto;
+      background: white;
+      color: #111;
+      font-family: "Times New Roman", Times, serif;
+      font-size: 10pt;
+      line-height: 1.16;
+      text-rendering: optimizeLegibility;
+    }
+    .title-block {
+      text-align: center;
+      padding: 5mm 7mm 4.5mm;
+    }
+    h1 {
+      max-width: 160mm;
+      margin: 0 auto 5mm;
+      font-size: 24pt;
+      line-height: 1.03;
+      font-weight: 400;
+    }
+    .author { margin: 0; font-size: 11pt; line-height: 1.25; }
+    .columns {
+      column-count: 2;
+      column-gap: 7mm;
+      column-fill: balance;
+      orphans: 3;
+      widows: 3;
+    }
+    h2 {
+      margin: 2.2mm 0 1.2mm;
+      break-after: avoid;
+      text-align: center;
+      font-size: 10pt;
+      line-height: 1.15;
+      font-weight: 400;
+      text-transform: uppercase;
+    }
+    h3 {
+      margin: 1.8mm 0 0.8mm;
+      break-after: avoid;
+      font-size: 10pt;
+      font-style: italic;
+      font-weight: 400;
+    }
+    p { margin: 0 0 1.4mm; text-align: justify; text-indent: 4mm; }
+    p.noindent, .abstract p, .keywords, .caption, .table-note, .references p { text-indent: 0; }
+    .abstract-label, .keywords-label { font-weight: 700; font-style: italic; }
+    .keywords { margin-bottom: 2.3mm; text-align: justify; }
+    figure, table, .architecture, .result-callout { break-inside: avoid; }
+    figure { margin: 2.2mm 0 2.8mm; text-align: center; }
+    figure img { display: block; width: 100%; height: auto; margin: 0 auto; }
+    .caption {
+      margin: 1mm 2mm 0;
+      text-align: center;
+      font-size: 9pt;
+      line-height: 1.1;
+    }
+    .wide {
+      column-span: all;
+      margin: 3mm auto;
+      width: 100%;
+    }
+    .wide img { max-height: 92mm; object-fit: contain; }
+    .slot img { width: auto; max-width: 100%; max-height: 70mm; }
+    .matrix img { max-height: 111mm; }
+    .keep { break-inside: avoid; }
+    .architecture {
+      margin: 2.4mm 0 2.8mm;
+      padding: 1.8mm;
+      border: 0.4pt solid #555;
+      text-align: center;
+    }
+    .flow { display: flex; align-items: center; justify-content: center; gap: 1mm; }
+    .flow-box {
+      flex: 1 1 0;
+      min-height: 12mm;
+      padding: 1.5mm 0.8mm;
+      border: 0.6pt solid #333;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 8.5pt;
+      line-height: 1.05;
+    }
+    .arrow { flex: 0 0 auto; font-size: 11pt; }
+    .equation { margin: 1.5mm 0; text-align: center; font-style: italic; }
+    table { width: 100%; margin: 2mm 0 2.5mm; border-collapse: collapse; font-size: 8.7pt; line-height: 1.08; }
+    caption { margin-bottom: 1mm; text-align: center; font-size: 9pt; }
+    th, td { padding: 1.05mm 1.2mm; border-top: 0.45pt solid #555; border-bottom: 0.45pt solid #555; vertical-align: top; }
+    th { font-weight: 700; text-align: center; }
+    td.num { text-align: right; white-space: nowrap; }
+    .table-note { margin-top: -1.5mm; font-size: 8.3pt; line-height: 1.08; }
+    .result-callout {
+      margin: 2mm 0;
+      padding: 2mm 2.4mm;
+      border-left: 2pt solid #555;
+      background: #f4f4f4;
+      text-align: justify;
+    }
+    .mono { font-family: "Courier New", monospace; font-size: 8.1pt; overflow-wrap: anywhere; }
+    .references p { margin: 0 0 1.5mm 5mm; text-align: left; text-indent: -5mm; font-size: 8.7pt; line-height: 1.12; }
+    a { color: inherit; text-decoration: none; overflow-wrap: anywhere; }
+    .source-note { color: #333; font-size: 8.5pt; }
+    @media print {
+      html, body { background: white; }
+      body { width: auto; }
+      a { color: black; }
+    }
+  </style>
+</head>
+<body>
+  <header class="title-block">
+    <h1>Vizuelno prepoznavanje srpskog govora na osnovu pokreta usana pomoću adaptiranog LipNet modela</h1>
+    <p class="author">Nikola Bakić, EE58/2022, bakicnikola25@gmail.com</p>
+  </header>
+
+  <main class="columns">
+    <section class="abstract">
+      <p><span class="abstract-label">Sažetak—</span>U radu je razvijen i ispitan sistem za vizuelno prepoznavanje srpskog govora iz video-snimka usana, bez korišćenja zvučnog signala. Polazna LipNet arhitektura, prethodno obučena na engleskom skupu GRID, prilagođena je srpskom alfabetu i sekvencama promenljive dužine, a zatim dodatno obučena na govorno nezavisnoj podeli dostavljenog AI-SPEAK podskupa. Obrada svakog snimka obuhvata detekciju i poravnanje lica, izdvajanje oblasti usana veličine 128 × 64 piksela i pretvaranje cele sekvence u tekst pomoću CTC kriterijuma. Na 540 test primera pohlepno dekodiranje dalo je WER od 45,25% i CER od 18,24%. CTC prefix beam search sa karakterskim 5-gramskim jezičkim modelom, obučenim isključivo na trening transkriptima, smanjio je WER na 41,20% i CER na 14,70%. Upareni bootstrap intervali potvrđuju da poboljšanje obe metrike nije posledica izbora test uzorka. Degradacija rezolucije, zamućenje i malo pomeranje isečka promenili su WER za najviše 0,71 procentni poen, ali bez posebne statističke procene tih razlika. Analiza po delovima iskaza pokazuje dobre rezultate za komande, dane, brojeve i smerove, dok izolovana slova ostaju glavni izvor grešaka. Dobijeni sistem potvrđuje opravdanost prenosa znanja za srpsko čitanje sa usana, ali nizak procenat potpuno tačnih rečenica pokazuje da još nije spreman za pouzdanu praktičnu primenu.</p>
+    </section>
+    <p class="keywords"><span class="keywords-label">Ključne reči—</span>čitanje sa usana, LipNet, srpski jezik, CTC, prenos znanja.</p>
+
+    <section>
+      <h2>I. Uvod</h2>
+      <p>Čitanje sa usana je zadatak prepoznavanja izgovorenog sadržaja samo na osnovu vizuelne informacije. Takav sistem može da dopuni prepoznavanje govora u buci, omogući tihu komunikaciju i podrži osobe kojima zvučni kanal nije dostupan. Istovremeno, zadatak je težak jer različiti glasovi mogu da proizvedu veoma sličan položaj usana, deo artikulacije nije vidljiv spolja, a izgled i način govora se razlikuju od osobe do osobe.</p>
+      <p>LipNet je među prvim modelima koji su čitanje rečenice sa usana rešavali neposredno, jednom neuronskom mrežom, umesto odvojenim prepoznavanjem pojedinačnih vizema i reči [1]. Prostorno-vremenske konvolucije izdvajaju promene izgleda usana, rekurentni slojevi povezuju informacije kroz vreme, a CTC kriterijum omogućava učenje bez anotacije svakog video-frejma [2]. Originalni model je razvijen za engleski skup GRID [3]; cilj ovog rada je provera koliko se takav vizuelni prikaz može preneti na ograničen skup srpskih iskaza.</p>
+      <p>Glavni doprinos rada je kompletna, govorno nezavisna evaluacija adaptiranog modela: od provere podataka i prenosa težina, preko dodatnog obučavanja, do ispitivanja otpornosti i tri načina dekodiranja. Posebno je analizirano gde sistem greši unutar šestodelne gramatike iskaza. Time se rezultat ne svodi na jednu prosečnu metriku, već pokazuje i koje vrste sadržaja model zaista razaznaje.</p>
+    </section>
+
+    <section>
+      <h2>II. Model i kriterijum učenja</h2>
+      <h3>A. Arhitektura</h3>
+      <p>Ulaz u mrežu je tenzor oblika <i>B × 3 × T × 64 × 128</i>, gde je <i>B</i> veličina paketa, a <i>T</i> broj frejmova. Tri 3D konvoluciona bloka uče lokalne prostorno-vremenske obrasce. Kanali se redom povećavaju na 32, 64 i 96, dok se prostorna dimenzija smanjuje do 4 × 8. Dobijena sekvenca prolazi kroz dva dvosmerna GRU sloja sa po 256 skrivenih jedinica u svakom smeru, pa svaki vremenski korak ima prikaz dimenzije 512. Linearni izlazni sloj daje verovatnoće za 29 CTC klasa: prazni simbol, razmak i znakove korišćene u srpskim transkriptima.</p>
+
+      <div class="architecture">
+        <div class="flow">
+          <div class="flow-box">Mouth ROI<br>3 × T × 64 × 128</div><span class="arrow">→</span>
+          <div class="flow-box">3D CNN<br>32–64–96</div><span class="arrow">→</span>
+          <div class="flow-box">2 × BiGRU<br>2 × 256</div><span class="arrow">→</span>
+          <div class="flow-box">Linearni sloj<br>29 klasa</div><span class="arrow">→</span>
+          <div class="flow-box">CTC<br>dekoder</div>
+        </div>
+        <p class="caption">Sl. 1. Tok informacija kroz adaptirani LipNet model.</p>
+      </div>
+
+      <p>Video-zapisi nemaju jednaku dužinu. Zbog toga su popunjeni vremenski koraci maskirani posle svakog konvolucionog bloka, a stvarne dužine sekvenci prosleđene su kroz oba GRU sloja u pakovanom obliku. Ovim se sprečava da veštački nulti frejmovi utiču na stanje rekurentne mreže. Dropout sa verovatnoćom 0,5 primenjen je u konvolucionom i rekurentnom delu.</p>
+
+      <h3>B. CTC poravnanje i dekodiranje</h3>
+      <p>CTC sabira verovatnoće svih dozvoljenih vremenskih putanja koje se nakon uklanjanja ponovljenih znakova i praznih simbola svode na isti transkript [2]. Za video <i>x</i> i ciljni tekst <i>y</i> minimizuje se negativna log-verovatnoća</p>
+      <p class="equation">L<sub>CTC</sub> = −log ∑<sub>π∈B<sup>−1</sup>(y)</sub> P(π | x).</p>
+      <p>Na izlazu su upoređena tri dekodera. Pohlepni dekoder u svakom frejmu bira najverovatniji znak. Prefix beam search zadržava 50 najboljih prefiksa i razdvaja putanje koje završavaju praznim i nepraznim simbolom. Završna varijanta dodaje karakterski backoff 5-gramski model sa add-<i>k</i> zaglađivanjem (<i>k</i> = 0,1), težinom jezičkog modela 1,0 i bonusom za reč 0,5. Jezički model vidi samo 2.877 trening transkripata; validacioni i test tekstovi nisu korišćeni za njegovo učenje.</p>
+    </section>
+
+    <section>
+      <h2>III. Podaci i eksperimentalni protokol</h2>
+      <h3>A. Dostavljeni AI-SPEAK podskup</h3>
+      <p>U eksperimentu je korišćen dostavljeni srpski podskup baze AI-SPEAK. Lokalna revizija pronašla je 3.957 uparenih video-zapisa i anotacija za 22 govornika. To nije isto što i celokupna javno opisana baza, koja sadrži srpske i engleske snimke i drugačiji broj govornika i iskaza [6]. Zbog toga se svi brojevi i zaključci u nastavku odnose isključivo na podskup koji je stvarno obrađen.</p>
+      <p>Svaka referentna rečenica sledi gramatiku sa šest semantičkih mesta: <i>komanda – slovo – smer – slovo – dan – broj</i>. Govornici su podeljeni pre učenja, pa se nijedan identitet ne pojavljuje u više skupova. Trening čini 16 govornika (spk01, 02, 04, 05, 07, 08, 09, 11, 12, 14, 15, 17, 18, 19, 20 i 21), validaciju spk10, 13 i 16, a test spk03, 06 i 22. Ovakva podela meri generalizaciju na ljude koje model nije video tokom obučavanja.</p>
+
+      <table>
+        <caption>TABELA I<br>Podela dostavljenog podskupa</caption>
+        <thead><tr><th>Skup</th><th>Govornici</th><th>Uzorci</th><th>Udeo</th></tr></thead>
+        <tbody>
+          <tr><td>Trening</td><td class="num">16</td><td class="num">2.877</td><td class="num">72,7%</td></tr>
+          <tr><td>Validacija</td><td class="num">3</td><td class="num">540</td><td class="num">13,6%</td></tr>
+          <tr><td>Test</td><td class="num">3</td><td class="num">540</td><td class="num">13,6%</td></tr>
+          <tr><th>Ukupno</th><th class="num">22</th><th class="num">3.957</th><th class="num">100%</th></tr>
+        </tbody>
+      </table>
+
+      <figure>
+        <img src="assets/01_dataset_split.png" alt="Broj uzoraka u trening, validacionom i test skupu">
+        <p class="caption">Sl. 2. Broj uzoraka u govorno nezavisnim podskupovima.</p>
+      </figure>
+
+      <h3>B. Priprema video-sekvenci</h3>
+      <p>Snimci su dekodirani brzinom od 25 frejmova u sekundi. BlazeFace detektor [4] pronalazi lice, 68 karakterističnih tačaka određuje njegovu geometriju, a afina transformacija ga dovodi u kanonski položaj. Iz poravnatog lica za svaki frejm se izdvaja oblast oko usana i menja veličina na 128 × 64 piksela. Frejmovi se čuvaju kao JPEG sekvenca i pri učitavanju normalizuju na opseg [0, 1]. Slika 3 pokazuje da isečak prati usta tokom izgovora, dok ostatak lica ne ulazi u model.</p>
+
+      <figure class="wide">
+        <img src="assets/02_gpu_demo_mouth_frames.png" alt="Šest frejmova izdvojene oblasti usana iz jednog snimka">
+        <p class="caption">Sl. 3. Primer vremenske promene izdvojene oblasti usana. Frejmovi pripadaju istom video-zapisu.</p>
+      </figure>
+
+      <p>Tekst anotacija je normalizovan na mala slova u Unicode NFC obliku, a oznake tišine uklonjene su pre tokenizacije. Za svaki uzorak provereno je CTC ograničenje između dužine cilja i broja raspoloživih vremenskih koraka; svih 3.957 uzoraka bilo je validno. Provera paketa potvrdila je i stvarne dužine promenljivih video-sekvenci, umesto izvođenja iz popunjene širine paketa.</p>
+
+      <h3>C. Prenos znanja i obučavanje</h3>
+      <p>Polazne težine preuzete su iz javne PyTorch realizacije LipNet-a [5], obučene na skupu GRID. Preneta su 22 kompatibilna tenzora konvolucionog i rekurentnog dela. Samo težina i pomeraj završnog klasifikatora nisu preneti, jer srpska izlazna azbuka ima 29 klasa. Prve tri epohe učen je samo novi izlazni sloj; zatim je odmrznuta cela mreža. Korišćen je Adam sa različitim stopama učenja: 2·10<sup>−5</sup> za osnovni deo i 10<sup>−4</sup> za klasifikator.</p>
+
+      <table>
+        <caption>TABELA II<br>Konfiguracija dodatnog obučavanja</caption>
+        <tbody>
+          <tr><td>Maksimalan broj epoha</td><td class="num">45</td></tr>
+          <tr><td>Warm-up izlaznog sloja</td><td class="num">3 epohe</td></tr>
+          <tr><td>Veličina paketa</td><td class="num">2</td></tr>
+          <tr><td>Rano zaustavljanje</td><td class="num">5 epoha</td></tr>
+          <tr><td>Slučajno seme</td><td class="num">0</td></tr>
+          <tr><td>Računarsko okruženje</td><td class="num">NVIDIA L4</td></tr>
+        </tbody>
+      </table>
+
+      <p>Najbolji checkpoint izabran je isključivo prema validacionom WER-u, sa CER-om i potpunim poklapanjem kao pomoćnim kriterijumima. Dobijen je u 43. epohi (indeks 42): validacioni gubitak iznosio je 0,7390, WER 49,72%, a CER 22,02%. Test skup je ocenjen samo tim izabranim checkpoint-om. Njegov SHA-256 otisak počinje sa <span class="mono">203c2707b5c3…</span>, što jednoznačno vezuje sve naredne eksperimente za iste težine.</p>
+
+      <figure class="wide">
+        <img src="assets/08_training_history.png" alt="Kriva CTC gubitka i WER metrike tokom 45 epoha">
+        <p class="caption">Sl. 4. Tok obučavanja: CTC gubitak i WER na trening i validacionom skupu. Isprekidana linija označava kraj troepohovnog warm-up perioda.</p>
+      </figure>
+    </section>
+
+    <section>
+      <h2>IV. Način evaluacije</h2>
+      <p>Osnovne metrike su greška na nivou reči (WER) i karaktera (CER). Obe su računane zbirno nad celim korpusom: broj Levenštajnovih zamena, brisanja i umetanja podeljen je ukupnim brojem referentnih reči, odnosno karaktera. Ovakva definicija sprečava da kratke i duge rečenice dobiju isti uticaj samo zato što su pojedinačni uzorci. Prijavljen je i procenat rečenica koje su potpuno jednake referenci.</p>
+      <p>Za poređenje dekodera primenjen je upareni bootstrap sa 2.000 ponavljanja nad istih 540 test primera i 95-procentnim intervalima pouzdanosti [7]. Interval se računa za razliku metrike kandidata i pohlepnog dekodera; negativna vrednost znači poboljšanje. Hiperparametri beam search-a birani su na validacionom skupu, dok je test skup ostao zaključan do konačnog poređenja.</p>
+      <p>Otpornost vizuelnog ulaza proverena je bez ponovnog obučavanja: originalni ROI upoređen je sa smanjenjem na 96 × 48 i 64 × 32 uz vraćanje na 128 × 64, Gausovim zamućenjem i determinističkim pomeranjem isečka za četiri piksela vodoravno i dva uspravno. Sve varijante koriste isti checkpoint i pohlepni dekoder, pa razlike opisuju samo osetljivost ulaza.</p>
+    </section>
+
+    <section>
+      <h2>V. Rezultati</h2>
+      <h3>A. Osnovni model i otpornost</h3>
+      <p>Na test skupu od 540 do tada neviđenih snimaka, pohlepni dekoder ostvario je WER 45,25% i CER 18,24%. Razlika između te dve metrike pokazuje da predikcije često zadržavaju veći deo pravilnog zapisa reči, ali greška u nekoliko karaktera ipak čini celu reč netačnom. Nijedna rečenica nije bila potpuno tačna u ovoj varijanti.</p>
+      <p>Promene kvaliteta slike dale su iznenađujuće bliske rezultate. Najveći zabeleženi rast WER-a bio je 0,71 procentni poen kod zamućenja, a najmanji 0,09 poena kod pomeranja isečka. Rezultat sugeriše da model ne zavisi od sasvim oštre slike niti od piksel preciznog položaja usana. Ipak, za ove razlike nisu računani upareni intervali, pa ih treba čitati deskriptivno, a ne kao dokaz jednake performanse u svim uslovima.</p>
+
+      <figure class="wide">
+        <img src="assets/03_robustness.png" alt="Poređenje WER i CER za pet uslova kvaliteta ulaza">
+        <p class="caption">Sl. 5. WER i CER pri promeni rezolucije, zamućenju i pomeranju oblasti usana. Niža vrednost je bolja.</p>
+      </figure>
+
+      <h3>B. Uticaj dekodera</h3>
+      <table>
+        <caption>TABELA III<br>Rezultati dekodiranja na test skupu</caption>
+        <thead><tr><th>Dekoder</th><th>WER</th><th>CER</th><th>Potpuno tačno</th></tr></thead>
+        <tbody>
+          <tr><td>Pohlepni</td><td class="num">45,25%</td><td class="num">18,24%</td><td class="num">0,00%</td></tr>
+          <tr><td>Beam, bez LM</td><td class="num">44,88%</td><td class="num">18,10%</td><td class="num">0,00%</td></tr>
+          <tr><td>Beam + 5-gram LM</td><td class="num"><b>41,20%</b></td><td class="num"><b>14,70%</b></td><td class="num"><b>0,37%</b></td></tr>
+        </tbody>
+      </table>
+
+      <p>Sam beam search daje malo, ali dosledno poboljšanje: WER pada za 0,37 poena, uz 95% interval razlike od −0,59 do −0,19 poena. Dodavanje karakterskog jezičkog modela smanjuje WER za 4,04 poena, odnosno relativno za 8,94%, a CER za 3,54 poena. Intervali su [−4,81, −3,30] za WER i [−3,84, −3,26] za CER, pa oba isključuju nulu. Jezički model, dakle, pouzdano popravlja znakove i reči koje vizuelna mreža ocenjuje slično.</p>
+
+      <figure class="wide">
+        <img src="assets/04_decoder_comparison.png" alt="Poređenje dekodera i bootstrap intervala za promenu WER i CER">
+        <p class="caption">Sl. 6. Levo: apsolutne test metrike tri dekodera. Desno: upareni bootstrap intervali promene u odnosu na pohlepni dekoder.</p>
+      </figure>
+
+      <div class="result-callout"><b>Glavni nalaz.</b> Najbolji dekoder ostvaruje WER 41,20% i CER 14,70%; poboljšanje u odnosu na pohlepno dekodiranje je statistički stabilno nad test uzorcima. Međutim, samo 2 od 540 rečenica su potpuno tačne, pa bolji prosečni WER ne treba poistovetiti sa pouzdanim prepisom cele naredbe.</div>
+
+      <p>Jedan od ta dva primera jasno pokazuje ulogu jezičkog konteksta. Za referencu „potvrdi v gore ž nedelja šest” pohlepni dekoder daje „potvrdi o gore nedelja šest” — prvo slovo je pogrešno, a drugo izostavljeno. Beam search sa jezičkim modelom vraća svih šest elemenata i dobija tačan iskaz. To je koristan primer korekcije, ali nije reprezentativan za većinu rečenica; zbog toga su zbirne metrike i analiza po mestima važnije od pojedinačnog uspeha.</p>
+    </section>
+
+    <section>
+      <h2>VI. Analiza grešaka</h2>
+      <p>Fiksna gramatika omogućava da se svaka predikcija poravna sa šest semantičkih mesta. Kod najboljeg dekodera komanda je tačna u 88,52% primera, dan u 91,30%, broj u 81,11%, a smer u 79,81%. Nasuprot tome, prvo izolovano slovo tačno je u 3,33%, a drugo u 8,70% primera. Reči sa više frejmova nude stabilniji vizuelni obrazac i jači jezički kontekst, dok kratko izgovoreno slovo mora da se razazna iz male vremenske razlike i često deli slične pokrete usana sa drugim slovima.</p>
+
+      <figure class="wide slot">
+        <img src="assets/05_slot_accuracy.png" alt="Tačnost po šest mesta gramatike za tri dekodera">
+        <p class="caption">Sl. 7. Tačnost po mestu u iskazu. Jezički model najviše pomaže strukturisanim rečima, dok izolovana slova ostaju nestabilna.</p>
+      </figure>
+
+      <p>Normalizovane matrice konfuzije na slici 8 otkrivaju i sistematske zamene. Komande su uglavnom dobro odvojene, posebno „odustani”, dok se „početak” češće meša sa drugim komandama. Kod smerova je „dole” najproblematičniji: u 38% primera je ispravno prepoznat, a u 59% zamenjen sa „gore”. Dani su najstabilnija grupa. Među brojevima se „tri” izdvaja kao težak slučaj, sa 38% tačnih predikcija. Ovi nalazi su u skladu sa vizuelnom sličnošću pojedinih izgovora i uticajem jezičkog modela, ali eksperiment ne razdvaja ta dva uzroka, pa se ne mogu tvrditi kao potvrđen mehanizam greške.</p>
+
+      <figure class="wide matrix">
+        <img src="assets/06_slot_confusion_matrices.png" alt="Normalizovane matrice konfuzije za komandu, smer, dan i broj">
+        <p class="caption">Sl. 8. Normalizovane matrice konfuzije najboljeg dekodera za četiri višeklasna mesta.</p>
+      </figure>
+
+      <figure class="wide">
+        <img src="assets/07_letter_substitutions.png" alt="Najčešće zamene prvog i drugog izolovanog slova">
+        <p class="caption">Sl. 9. Najčešće zamene u dva mesta predviđena za izolovana slova.</p>
+      </figure>
+
+      <p class="keep">Analiza izolovanih slova dopunjuje isti zaključak. Greške nisu ravnomerno raspoređene: mali broj zamena javlja se znatno češće od ostalih, a pojedina slova nestaju iz predikcije. Karakterski model smanjuje ukupan CER i često vraća strukturu rečenice, ali pošto je učen na potpunim transkriptima može da favorizuje češće kombinacije. Za aplikaciju u kojoj su baš slova ključni podatak to predstavlja glavno ograničenje sadašnjeg sistema.</p>
+    </section>
+
+    <section>
+      <h2>VII. Ograničenja i ponovljivost</h2>
+      <p>Najvažnije ograničenje je obim podataka. Test obuhvata tri nova govornika i jednu strogo kontrolisanu gramatiku, pa rezultat ne opisuje slobodan srpski govor, razgovor u prirodnom okruženju niti širok raspon položaja glave i osvetljenja. Rodna, starosna i druga demografska struktura dostavljenog podskupa nije korišćena u analizi, zbog čega nisu ispitane razlike performansi među tim grupama.</p>
+      <p>Drugo ograničenje je zavisnost dekodera od poznate jezičke strukture. 5-gramski model nije video validacione ili test rečenice, što sprečava direktno curenje podataka, ali je treniran na istoj šestodelnoj gramatici. Njegov dobitak zato pokazuje vrednost konteksta u ovom domenu, a ne nužno generalizaciju na proizvoljan tekst. Potpuno poklapanje od 0,37% ostaje strogo upozorenje za upotrebu konačnog transkripta bez dodatne provere.</p>
+      <p>Za proverljivost su sačuvani spiskovi govornika, konfiguracija, definicija korpusnih metrika, predikcije svih 540 test uzoraka, 2.000 bootstrap ponavljanja i otisak checkpoint-a. Osnovni test WER iz eksperimenta otpornosti potpuno se poklapa sa rezultatom obučavanja. Automatske provere obuhvataju podatke, model, CTC, prenos težina, dekodere i izveštajne rezultate; svih 34 testa prolaze. Nepouzdani istorijski brojevi o odbačenim frejmovima nisu korišćeni u zaključcima.</p>
+    </section>
+
+    <section>
+      <h2>VIII. Zaključak</h2>
+      <p>Adaptirani LipNet uspešno uči korisnu vezu između pokreta usana i srpskog teksta, iako polazne težine potiču iz engleskog skupa. Govorno nezavisni test pokazuje da pohlepni model dostiže WER 45,25% i CER 18,24%. Uvođenjem CTC beam search-a i karakterskog 5-gramskog modela te vrednosti se popravljaju na 41,20% i 14,70%, sa bootstrap intervalima koji potvrđuju stabilno poboljšanje. Istovremeno, male promene rezolucije i položaja isečka malo menjaju zbirne metrike.</p>
+      <p>Najvažniji praktični nalaz nije samo najbolji WER, već velika razlika među delovima iskaza. Komande, dani, brojevi i smerovi prepoznaju se znatno pouzdanije od izolovanih slova. Sledeći korak zato treba da bude usmeren na više govornika i raznovrsnije snimke, ciljanu obradu slova, vizuelno-jezički dekoder koji ne potiskuje retke znakove i evaluaciju na slobodnijem srpskom govoru. Tek nakon toga ima smisla razmatrati sistem koji donosi odluku na nivou cele naredbe.</p>
+    </section>
+
+    <section class="references">
+      <h2>Reference</h2>
+      <p>[1] Y. M. Assael, B. Shillingford, S. Whiteson i N. de Freitas, „LipNet: End-to-End Sentence-level Lipreading,” <i>Proc. 31st AAAI Conf. Artificial Intelligence</i>, 2017, str. 3349–3355. Dostupno: <a href="https://arxiv.org/abs/1611.01599">arXiv:1611.01599</a>.</p>
+      <p>[2] A. Graves, S. Fernández, F. Gomez i J. Schmidhuber, „Connectionist Temporal Classification: Labelling Unsegmented Sequence Data with Recurrent Neural Networks,” <i>Proc. 23rd Int. Conf. Machine Learning</i>, 2006, str. 369–376. <a href="https://doi.org/10.1145/1143844.1143891">doi:10.1145/1143844.1143891</a>.</p>
+      <p>[3] M. Cooke, J. Barker, S. Cunningham i X. Shao, „An audio-visual corpus for speech perception and automatic speech recognition,” <i>J. Acoustical Society of America</i>, vol. 120, br. 5, str. 2421–2424, 2006. <a href="https://doi.org/10.1121/1.2229005">doi:10.1121/1.2229005</a>.</p>
+      <p>[4] V. Bazarevsky, Y. Kartynnik, A. Vakunov, K. Raveendran i M. Grundmann, „BlazeFace: Sub-millisecond Neural Face Detection on Mobile GPUs,” 2019. Dostupno: <a href="https://arxiv.org/abs/1907.05047">arXiv:1907.05047</a>.</p>
+      <p>[5] VIPL Audio-Visual Speech Understanding, „LipNet-PyTorch,” GitHub repozitorijum, revizija 40209e0. Dostupno: <a href="https://github.com/VIPL-Audio-Visual-Speech-Understanding/LipNet-PyTorch">github.com/VIPL-Audio-Visual-Speech-Understanding/LipNet-PyTorch</a> (pristupljeno 25. 8. 2026).</p>
+      <p>[6] Faculty of Technical Sciences, University of Novi Sad, „AI-SPEAK Database,” opis baze. Dostupno: <a href="https://data.telekom.ftn.uns.ac.rs/ai-speak/catA/ai-speak%20database.pdf">data.telekom.ftn.uns.ac.rs/ai-speak</a> (pristupljeno 25. 8. 2026).</p>
+      <p>[7] B. Efron i R. J. Tibshirani, <i>An Introduction to the Bootstrap</i>. New York, NY, USA: Chapman &amp; Hall, 1993.</p>
+    </section>
+  </main>
+</body>
+</html>
