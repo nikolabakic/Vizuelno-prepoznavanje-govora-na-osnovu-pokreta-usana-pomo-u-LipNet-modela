@@ -24,8 +24,6 @@ git ls-remote https://github.com/VIPL-Audio-Visual-Speech-Understanding/LipNet-P
 | `dataset.py` | `lipnet/dataset.py` | GRID učitavanje/dekoder/metrike + mali srpski adapter |
 | `cvtransforms.py` | `lipnet/cvtransforms.py` | horizontalni flip i `/255.0` normalizacija |
 | `main.py` | `lipnet/train.py` | checkpoint load, greedy decode, CTC loss i smoke backward |
-| Stanford CTC decoder iz originalnog rada | `lipnet/decoder.py` | izdvojeni prefix beam i train-only karakterni 5-gram eksperiment posle zaključanog greedy baseline-a |
-| nema statističkog poređenja dekodera | `lipnet/evaluation.py` | paired bootstrap i analiza grešaka po pozicijama za Fazu 7 |
 | `demo.py` | `lipnet/demo.py` | FFmpeg 25 fps, face alignment, afina transformacija, mouth crop |
 | `options.py` | `lipnet/options.py` | zajednički baseline parametri i pinovani checkpoint URL |
 | `data/*.txt` | kloniran upstream u Fazi 1 | originalni GRID indeksi ostaju upstream artefakt |
@@ -53,12 +51,11 @@ git ls-remote https://github.com/VIPL-Audio-Visual-Speech-Understanding/LipNet-P
 | 5 | svi parametri optimizovani istim LR-om | 3 head-only epohe, zatim backbone `2e-5` i head `1e-4` | bezbedna adaptacija novog srpskog CTC head-a | notebook prikazuje stage svake epohe i trainable audit pokrivaju testovi |
 | 5 | prosečan sentence-normalized VIPL WER/CER | corpus edit greške / ukupan broj referentnih reči ili karaktera | standardno i dosledno poređenje različito dugih rečenica | test sa nejednakim denominatorima; Faza 6 ponavlja Phase 5 baseline |
 | 6 | nema traženih robustness eksperimenata | isti `best.pt` nad originalom, dve rezolucije, blur-om i crop pomeranjem | ispunjenje praktičnog dela bez promene modela/dekodera | checkpoint SHA-256 i baseline jednakost pre poređenja uslova |
-| 7 | VIPL PyTorch koristi greedy dekoder | zadržan greedy baseline + CTC prefix beam bez LM-a i sa train-only 5-gram LM-om | povezivanje praktičnog dela sa decoderom originalnog rada bez retreninga | exhaustive mali CTC test, validation-only izbor, checkpoint SHA i greedy baseline jednakost |
 
 ## Legacy izolacija
 
 `app/` pipeline, stari Faza 1/2 notebookovi, njihovi dokumenti i template
 `hello.py` uklonjeni su 24. avgusta 2026. Njihova istorija ostaje dostupna kroz
 Git. Aktivni kod u `lipnet/`, `scripts/prepare_ai_speak.py` i notebookovima
-`00_...`–`07_...` ne čita `manifest.csv`, `roi.csv`, `roi_qa.json`, `vocab.json`
+`00_...`–`06_...` ne čita `manifest.csv`, `roi.csv`, `roi_qa.json`, `vocab.json`
 niti `split.json` i ne koristi statičan/median ROI.

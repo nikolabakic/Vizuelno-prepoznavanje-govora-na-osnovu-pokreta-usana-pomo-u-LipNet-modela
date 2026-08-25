@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Generate the reader-facing Colab notebooks for phases 0 through 7."""
+"""Generate the six reader-facing Colab notebooks for phases 0 through 5."""
 
 from __future__ import annotations
 
@@ -426,8 +426,8 @@ def phase2() -> nbf.NotebookNode:
             md("""
             ## Setup
 
-            Završeni `MyDrive/LipNet/ai_speak_lip.zip` već postoji. Smoke i puna BlazeFace
-            obrada su zato podrazumevano isključeni; notebook ostaje kao evidencija toka.
+            Izaberi T4 GPU. ZIP se jednom kopira sa Drive-a na `/content`; landmark obrada
+            sa montiranog Drive-a bi bila znatno sporija. Prilagodi samo `ZIP_ON_DRIVE`.
             """),
             code("""
             import subprocess, sys
@@ -441,10 +441,8 @@ def phase2() -> nbf.NotebookNode:
             code("""
             import numpy as np
             import torch
-            print(
-                'GPU:', torch.cuda.get_device_name(0)
-                if torch.cuda.is_available() else 'nije potreban za reuse postojećeg ZIP-a'
-            )
+            assert torch.cuda.is_available(), 'Uključi T4 GPU u Colab Runtime postavkama.'
+            print('GPU:', torch.cuda.get_device_name(0))
             """),
             code(drive_setup_cell()),
             md("## Steps\n\n### 1. Kopiraj i raspakuj lokalni korpus"),
@@ -457,60 +455,61 @@ def phase2() -> nbf.NotebookNode:
             EXTRACT_ROOT = Path('/content/ai_speak_source')
             OUTPUT_ROOT = Path('/content/ai_speak_lip_blazeface')
             CHECKPOINT_DIR = DRIVE_ROOT / 'phase2_chunks_blazeface'
-            RUN_SMOKE_PREPROCESSING = False
-            RUN_FULL_PREPROCESSING = False
-            EXISTING_MOUTH_ARCHIVE = DRIVE_ROOT / 'ai_speak_lip.zip'
-            assert EXISTING_MOUTH_ARCHIVE.exists(), EXISTING_MOUTH_ARCHIVE
-            print('Zamrznuti mouth artefakt:', EXISTING_MOUTH_ARCHIVE)
+            RUN_FULL_PREPROCESSING = True
 
-            CORPUS_ROOT = None
-            videos = []
-            annotations = []
-            if RUN_SMOKE_PREPROCESSING or RUN_FULL_PREPROCESSING:
-                assert ZIP_ON_DRIVE.exists(), ZIP_ON_DRIVE
-                if not LOCAL_ZIP.exists() or not zipfile.is_zipfile(LOCAL_ZIP):
-                    if LOCAL_ZIP.exists():
-                        LOCAL_ZIP.unlink()
-                    shutil.copy2(ZIP_ON_DRIVE, LOCAL_ZIP)
-                EXTRACT_ROOT.mkdir(parents=True, exist_ok=True)
+            assert ZIP_ON_DRIVE.exists(), ZIP_ON_DRIVE
+            if not LOCAL_ZIP.exists() or not zipfile.is_zipfile(LOCAL_ZIP):
+                if LOCAL_ZIP.exists():
+                    LOCAL_ZIP.unlink()
+                shutil.copy2(ZIP_ON_DRIVE, LOCAL_ZIP)
+
+            EXTRACT_ROOT.mkdir(parents=True, exist_ok=True)
+            alignment = next(EXTRACT_ROOT.rglob('spk*/alignment/*.align'), None)
+            if alignment is None:
+                print('AI-SPEAK sadržaj nije pronađen; raspakujem processed.zip...')
+                with zipfile.ZipFile(LOCAL_ZIP) as archive:
+                    archive.extractall(EXTRACT_ROOT)
                 alignment = next(EXTRACT_ROOT.rglob('spk*/alignment/*.align'), None)
-                if alignment is None:
-                    with zipfile.ZipFile(LOCAL_ZIP) as archive:
-                        archive.extractall(EXTRACT_ROOT)
-                    alignment = next(EXTRACT_ROOT.rglob('spk*/alignment/*.align'), None)
-                assert alignment is not None
-                CORPUS_ROOT = alignment.parents[2]
-                videos = list(CORPUS_ROOT.glob('spk*/ser/video_a/*.mp4'))
-                annotations = list(CORPUS_ROOT.glob('spk*/alignment/*.align'))
-                assert videos and len(videos) == len(annotations)
-                CHECKPOINT_DIR.mkdir(parents=True, exist_ok=True)
-                print('Korpus MP4/ALIGN:', len(videos), len(annotations))
-            else:
-                print('processed.zip se ne kopira niti raspakuje.')
+
+            assert alignment is not None, (
+                f'Posle raspakivanja nema spk*/alignment/*.align u {EXTRACT_ROOT}. '
+                'Proveri strukturu processed.zip arhive.'
+            )
+            CORPUS_ROOT = alignment.parents[2]
+            videos = list(CORPUS_ROOT.glob('spk*/ser/video_a/*.mp4'))
+            annotations = list(CORPUS_ROOT.glob('spk*/alignment/*.align'))
+            assert videos and len(videos) == len(annotations), (len(videos), len(annotations))
+            print('Korpus:', CORPUS_ROOT)
+            print('MP4/ALIGN:', len(videos), len(annotations))
+
+            CHECKPOINT_DIR.mkdir(parents=True, exist_ok=True)
+            print('Drive checkpoint folder:', CHECKPOINT_DIR)
             """),
             md("### 2. Prvo uradi jedan GPU smoke primer i upstream `_load_vid` proveru"),
             code("""
             SMOKE_ROOT = Path('/content/ai_speak_lip_blazeface_smoke')
-            if RUN_SMOKE_PREPROCESSING:
-                smoke_command = [
-                    sys.executable, '-m', 'scripts.prepare_ai_speak',
-                    '--corpus', str(CORPUS_ROOT), '--output', str(SMOKE_ROOT),
-                    '--device', 'cuda', '--face-detector', 'blazeface', '--limit', '1',
-                ]
-                smoke = subprocess.run(smoke_command, text=True, capture_output=True)
-                print(smoke.stdout)
-                if smoke.returncode:
-                    print(smoke.stderr)
-                    raise RuntimeError(f'Smoke preprocessing nije uspeo: {smoke.returncode}')
-                from lipnet.dataset import MyDataset
-                sample_folder = next(SMOKE_ROOT.glob('spk*/video/video_a/*'))
-                sample_array = MyDataset._load_vid(sample_folder)
-                normalized = sample_array / 255.0
-                assert sample_array.shape[1:] == (64, 128, 3)
-                assert 0.0 <= float(normalized.min()) <= float(normalized.max()) <= 1.0
-                print('VIPL _load_vid:', sample_array.shape, 'range:', normalized.min(), normalized.max())
-            else:
-                print('RUN_SMOKE_PREPROCESSING=False: BlazeFace smoke je preskočen.')
+            smoke_command = [
+                sys.executable, '-m', 'scripts.prepare_ai_speak',
+                '--corpus', str(CORPUS_ROOT), '--output', str(SMOKE_ROOT),
+                '--device', 'cuda', '--face-detector', 'blazeface', '--limit', '1',
+            ]
+            print('Pokrećem:', ' '.join(smoke_command))
+            smoke = subprocess.run(smoke_command, text=True, capture_output=True)
+            print(smoke.stdout)
+            if smoke.returncode:
+                print(smoke.stderr)
+                raise RuntimeError(
+                    f'AI-SPEAK smoke preprocessing nije uspeo (exit={smoke.returncode}). '
+                    'Stvarna greška je odštampana neposredno iznad.'
+                )
+
+            from lipnet.dataset import MyDataset
+            sample_folder = next(SMOKE_ROOT.glob('spk*/video/video_a/*'))
+            sample_array = MyDataset._load_vid(sample_folder)
+            normalized = sample_array / 255.0
+            assert sample_array.shape[1:] == (64, 128, 3)
+            assert 0.0 <= float(normalized.min()) <= float(normalized.max()) <= 1.0
+            print('VIPL _load_vid:', sample_array.shape, 'range:', normalized.min(), normalized.max())
             """),
             md("### 3. Obradi ceo korpus na GPU-u i nastavi bez ponavljanja gotovih klipova"),
             code("""
@@ -528,36 +527,75 @@ def phase2() -> nbf.NotebookNode:
             """),
             md("## Checks\n\n### 4. Proveri potpunost i vizuelno pregledaj granične klipove"),
             code("""
-            assert EXISTING_MOUTH_ARCHIVE.stat().st_size > 0
-            if RUN_FULL_PREPROCESSING:
-                from IPython.display import Image, display
-                QA_PATH = OUTPUT_ROOT / 'qa_mouth_crops.jpg'
-                FAILURE_LOG = OUTPUT_ROOT / 'failed_clips.log'
-                PREPROCESSING_LOG = OUTPUT_ROOT / 'preprocessing.jsonl'
-                assert QA_PATH.exists() and FAILURE_LOG.exists() and PREPROCESSING_LOG.exists()
-                display(Image(filename=str(QA_PATH)))
-                print('Nova obrada zahteva ručnu QA potvrdu pre arhiviranja.')
-            else:
-                print('Postojeći ai_speak_lip.zip je potvrđen; QA i BlazeFace se ne ponavljaju.')
+            import json
+            from IPython.display import Image, display
+
+            QA_PATH = OUTPUT_ROOT / 'qa_mouth_crops.jpg'
+            FAILURE_LOG = OUTPUT_ROOT / 'failed_clips.log'
+            PREPROCESSING_LOG = OUTPUT_ROOT / 'preprocessing.jsonl'
+            assert QA_PATH.exists(), 'Puna obrada nije napravljena ili nije završena.'
+            records = [
+                json.loads(line)
+                for line in PREPROCESSING_LOG.read_text(encoding='utf-8').splitlines()
+                if line.strip()
+            ]
+            failures = [
+                line for line in FAILURE_LOG.read_text(encoding='utf-8').splitlines()
+                if line.strip()
+            ]
+            success_ids = {record['sample_id'] for record in records}
+            failure_ids = {line.split('\\t', 1)[0] for line in failures}
+            input_ids = {path.stem for path in videos}
+            assert not (success_ids & failure_ids)
+            assert success_ids | failure_ids == input_ids
+            assert len(records) == len(success_ids)
+            assert all(record['landmark_frames'] > 0 for record in records)
+            assert all(
+                record['decoded_frames'] == record['landmark_frames'] + record['dropped_frames']
+                for record in records
+            )
+            phase2_audit = {
+                'phase': 2,
+                'face_detector': 'blazeface',
+                'torch_version': torch.__version__,
+                'gpu': torch.cuda.get_device_name(0),
+                'input_pairs': len(videos),
+                'successful_clips': len(records),
+                'failed_clips': len(failures),
+                'clips_with_dropped_frames': sum(
+                    record['dropped_frames'] > 0 for record in records
+                ),
+                'decoded_frames': sum(record['decoded_frames'] for record in records),
+                'landmark_frames': sum(record['landmark_frames'] for record in records),
+            }
+            (OUTPUT_ROOT / 'phase2_audit.json').write_text(
+                json.dumps(phase2_audit, indent=2, ensure_ascii=False) + '\\n',
+                encoding='utf-8',
+            )
+            display(Image(filename=str(QA_PATH)))
+            print('Uspešni klipovi:', len(records), '/', len(videos))
+            print('Neuspeli klipovi:', len(failures))
+            print('Klipovi sa ispuštenim frejmovima:', sum(r['dropped_frames'] > 0 for r in records))
+            print('\\n'.join(failures[:20]) if failures else 'Nema neuspelih klipova.')
+            print('Ručno potvrdi: usne su u centru, nisu odsečene i crop je stabilan.')
             """),
             md("### 5. Arhiviraj JPEG foldere i logove na Drive"),
             code("""
+            MANUAL_QA_PASSED = False  # promeni na True tek nakon pregleda prikazane QA slike
+            assert MANUAL_QA_PASSED, 'Ručno pregledaj QA sliku, pa potvrdi MANUAL_QA_PASSED=True.'
             if RUN_FULL_PREPROCESSING:
-                MANUAL_QA_PASSED = False  # samo za namerno novu punu obradu
-                assert MANUAL_QA_PASSED, 'Ručno pregledaj QA sliku pre nove arhive.'
                 archive_base = Path('/content/ai_speak_lip')
                 archive = Path(shutil.make_archive(str(archive_base), 'zip', root_dir=OUTPUT_ROOT))
                 drive_archive = DRIVE_ROOT / 'ai_speak_lip.zip'
                 shutil.copy2(archive, drive_archive)
                 print('Sačuvano:', drive_archive, f'{drive_archive.stat().st_size/1024**3:.2f} GiB')
-            else:
-                print('Postojeći ai_speak_lip.zip ostaje neizmenjen.')
             """),
             md("""
             ## Next Steps
 
-            U nastavku projekta ne pokretati preprocessing ponovo. Faze 3–7 samo raspakuju
-            postojeći `ai_speak_lip.zip`; logovi nisu ulaz u trening.
+            Ne prelazi na Dataset dok smoke shape/opseg i ručni QA ne prođu. Faza 3 čita samo
+            JPEG foldere i originalne `.align` fajlove; `preprocessing.jsonl` i failure log nisu
+            ulaz u trening.
             """),
         ],
         gpu=True,
@@ -1402,25 +1440,6 @@ def phase6() -> nbf.NotebookNode:
             print('GPU:', torch.cuda.get_device_name(0))
             """),
             code(drive_setup_cell()),
-            code("""
-            # Faza 7 moze da se pokrene pre nego sto su novi decoder moduli objavljeni
-            # na GitHub-u. Kopije na Drive-u su mali izvorni fajlovi; mouth frejmovi se
-            # samo citaju iz postojeceg ZIP-a i nikada se ponovo ne generisu.
-            import shutil
-
-            PHASE7_CODE_DIR = DRIVE_ROOT / 'phase7_code'
-            for module_name in ('decoder.py', 'evaluation.py'):
-                drive_source = PHASE7_CODE_DIR / module_name
-                repo_target = REPO / 'lipnet' / module_name
-                if drive_source.exists():
-                    shutil.copy2(drive_source, repo_target)
-                    print('Ucitan Faza 7 modul sa Drive-a:', drive_source)
-                assert repo_target.exists(), (
-                    f'Nedostaje {module_name}. Ocekivan je u checkout-u ili u '
-                    f'{PHASE7_CODE_DIR}.'
-                )
-            importlib.invalidate_caches()
-            """),
             md("## Steps\n\n### 1. Učitaj test mouth frejmove i anotacije"),
             code("""
             import zipfile
@@ -1495,7 +1514,6 @@ def phase6() -> nbf.NotebookNode:
             phase5_results = json.loads(PHASE5_RESULTS.read_text(encoding='utf-8'))
             assert phase5_results['best_checkpoint_sha256'] == checkpoint_sha256
             assert phase5_results['metrics_definition'] == 'corpus-edit-distance-v1'
-
             """),
             md("### 3. Definiši determinističke ulazne varijante"),
             code("""
@@ -1645,480 +1663,6 @@ def phase6() -> nbf.NotebookNode:
     )
 
 
-def phase7() -> nbf.NotebookNode:
-    return notebook(
-        "Faza 7 — CTC beam search i karakterni jezički model",
-        [
-            md("""
-            ## Goal
-
-            Uporedi postojeći greedy CTC baseline sa prefix beam search dekoderom bez
-            jezičkog modela i sa karakternim 5-gram modelom. LipNet checkpoint, test split
-            i mouth frejmovi ostaju potpuno isti; ne radi se novi trening niti BlazeFace
-            preprocessing.
-            """),
-            md("""
-            ## Setup
-
-            Ovaj notebook koristi postojeći `ai_speak_lip.zip`, originalne `.align`
-            anotacije i `phase5_length_aware_v2/best.pt`. GPU je potreban samo za jedno
-            keširanje validation/test logit-a. Sve decoder konfiguracije zatim rade nad
-            istim CPU kešom. Karakterni LM se fit-uje isključivo nad train transkriptima;
-            validation bira hiperparametre, a test se koristi jednom za zaključane dekodere.
-            """),
-            code("""
-            import subprocess, sys
-            subprocess.run(
-                [sys.executable, '-m', 'pip', 'install', '-q',
-                 'editdistance>=0.8.1', 'opencv-python-headless>=4.10'],
-                check=True,
-            )
-            """),
-            code(repo_setup_cell(refresh_imports=True)),
-            code("""
-            import hashlib
-            import inspect
-            import json
-            import math
-            import time
-            import zipfile
-            from dataclasses import asdict
-
-            import matplotlib.pyplot as plt
-            import torch
-
-            from lipnet.model import LipNet
-
-            assert 'lengths' in inspect.signature(LipNet.forward).parameters
-            assert torch.cuda.is_available(), 'Uključi T4/L4 GPU za jedno keširanje logit-a.'
-            DEVICE = torch.device('cuda')
-            torch.manual_seed(0)
-            torch.cuda.manual_seed_all(0)
-            torch.backends.cudnn.benchmark = False
-            torch.backends.cudnn.deterministic = True
-            print('LipNet:', inspect.getfile(LipNet), inspect.signature(LipNet.forward))
-            print('GPU:', torch.cuda.get_device_name(0))
-            """),
-            code(drive_setup_cell()),
-            md("## Steps\n\n### 1. Učitaj postojeće frejmove i anotacije — bez preprocessinga"),
-            code("""
-            MOUTH_ARCHIVE = DRIVE_ROOT / 'ai_speak_lip.zip'
-            SOURCE_ARCHIVE = Path('/content/drive/MyDrive/processed.zip')  # promeni samo putanju
-            MOUTH_ROOT = Path('/content/ai_speak_lip')
-            ALIGN_EXTRACT = Path('/content/ai_speak_align')
-            assert MOUTH_ARCHIVE.exists(), MOUTH_ARCHIVE
-            assert SOURCE_ARCHIVE.exists(), SOURCE_ARCHIVE
-
-            # Samo raspakivanje već napravljenih artefakata. Nema face detectora/BlazeFace-a.
-            if not next(MOUTH_ROOT.glob('spk*/video/video_a/*'), None):
-                MOUTH_ROOT.mkdir(parents=True, exist_ok=True)
-                with zipfile.ZipFile(MOUTH_ARCHIVE) as archive:
-                    archive.extractall(MOUTH_ROOT)
-            if not next(ALIGN_EXTRACT.rglob('spk*/alignment/*.align'), None):
-                ALIGN_EXTRACT.mkdir(parents=True, exist_ok=True)
-                with zipfile.ZipFile(SOURCE_ARCHIVE) as archive:
-                    members = [
-                        member for member in archive.infolist()
-                        if '/alignment/' in f'/{member.filename}'
-                        and member.filename.endswith('.align')
-                    ]
-                    archive.extractall(ALIGN_EXTRACT, members=members)
-            CORPUS_ROOT = next(ALIGN_EXTRACT.rglob('spk*/alignment/*.align')).parents[2]
-            print('Koristim zamrznuti mouth artefakt:', MOUTH_ARCHIVE)
-            """),
-            code("""
-            from torch.utils.data import DataLoader, Subset
-
-            from data.splits import SPLITS
-            from lipnet.dataset import SerbianDataset, variable_length_collate
-            from lipnet.train import scan_ctc_compatibility
-
-            raw_datasets = {
-                name: SerbianDataset(MOUTH_ROOT, CORPUS_ROOT, speakers, phase='test')
-                for name, speakers in SPLITS.items()
-            }
-            reports = {
-                name: scan_ctc_compatibility(dataset)
-                for name, dataset in raw_datasets.items()
-            }
-            datasets = {
-                name: Subset(raw_datasets[name], report.valid_indices)
-                for name, report in reports.items()
-            }
-
-            def make_loader(name):
-                return DataLoader(
-                    datasets[name], batch_size=2, shuffle=False, num_workers=2,
-                    collate_fn=variable_length_collate, pin_memory=True,
-                )
-
-            train_token_sequences = [
-                raw_datasets['train'].ctc_lengths(index)[1].tolist()
-                for index in reports['train'].valid_indices
-            ]
-            for name in ('train', 'validation', 'test'):
-                print(name, 'valid=', len(datasets[name]), 'odbačeno=', reports[name].invalid_count)
-            """),
-            md("### 2. Proveri checkpoint i jednom keširaj validation/test logit-e"),
-            code("""
-            from lipnet.dataset import SERBIAN_LETTERS
-            from lipnet.model import LipNet
-            from lipnet.train import reference_text
-
-            PHASE5_DIR = DRIVE_ROOT / 'phase5_length_aware_v2'
-            BEST_CHECKPOINT = PHASE5_DIR / 'best.pt'
-            PHASE5_RESULTS = PHASE5_DIR / 'results.json'
-            EMISSIONS_CACHE = PHASE5_DIR / 'decoder_emissions_v1.pt'
-            DECODER_RESULTS = PHASE5_DIR / 'decoder_results_v1.json'
-            DECODER_PREDICTIONS = PHASE5_DIR / 'decoder_predictions_v1.json'
-            DECODER_PLOT = PHASE5_DIR / 'decoder_metrics_v1.png'
-            DECODER_TUNING = PHASE5_DIR / 'decoder_validation_v1.json'
-            assert BEST_CHECKPOINT.exists() and PHASE5_RESULTS.exists()
-
-            checkpoint = torch.load(BEST_CHECKPOINT, map_location='cpu', weights_only=False)
-            assert checkpoint['metadata']['training_protocol'] == 'length-aware-bigru-corpus-metrics-v2'
-            model = LipNet(num_classes=1 + len(SERBIAN_LETTERS)).to(DEVICE)
-            model.load_state_dict(checkpoint['model_state_dict'], strict=True)
-            model.eval()
-
-            hasher = hashlib.sha256()
-            with BEST_CHECKPOINT.open('rb') as handle:
-                for chunk in iter(lambda: handle.read(1024 * 1024), b''):
-                    hasher.update(chunk)
-            checkpoint_sha256 = hasher.hexdigest()
-            phase5_results = json.loads(PHASE5_RESULTS.read_text(encoding='utf-8'))
-            assert phase5_results['best_checkpoint_sha256'] == checkpoint_sha256
-            assert phase5_results['metrics_definition'] == 'corpus-edit-distance-v1'
-
-            split_signatures = {}
-            for name in ('validation', 'test'):
-                identities = [
-                    f'{raw_datasets[name].data[index][1]}/{raw_datasets[name].data[index][2]}'
-                    for index in reports[name].valid_indices
-                ]
-                split_signatures[name] = hashlib.sha256(
-                    json.dumps(identities, ensure_ascii=False).encode('utf-8')
-                ).hexdigest()
-
-            def collect_emissions(name):
-                emissions, references = [], []
-                with torch.inference_mode():
-                    for batch in make_loader(name):
-                        logits = model(
-                            batch['vid'].to(DEVICE, non_blocking=True),
-                            lengths=batch['vid_len'],
-                        ).cpu()
-                        for row, length in zip(logits, batch['vid_len']):
-                            emissions.append(row[:int(length)].contiguous())
-                        references.extend(reference_text(batch))
-                return {'logits': emissions, 'references': references}
-
-            cache = None
-            if EMISSIONS_CACHE.exists():
-                candidate = torch.load(EMISSIONS_CACHE, map_location='cpu', weights_only=False)
-                if (
-                    candidate.get('schema_version') == 1
-                    and candidate.get('checkpoint_sha256') == checkpoint_sha256
-                    and candidate.get('split_signatures') == split_signatures
-                    and set(candidate.get('splits', {})) == {'validation', 'test'}
-                ):
-                    cache = candidate
-                    print('Koristim postojeći emissions cache za isti checkpoint.')
-            if cache is None:
-                cache = {
-                    'schema_version': 1,
-                    'checkpoint_sha256': checkpoint_sha256,
-                    'split_signatures': split_signatures,
-                    'splits': {
-                        name: collect_emissions(name)
-                        for name in ('validation', 'test')
-                    },
-                }
-                torch.save(cache, EMISSIONS_CACHE)
-                print('Sačuvano:', EMISSIONS_CACHE)
-            for name in ('validation', 'test'):
-                assert len(cache['splits'][name]['logits']) == len(datasets[name])
-                assert len(cache['splits'][name]['references']) == len(datasets[name])
-            del model
-            torch.cuda.empty_cache()
-            """),
-            md("### 3. Fituj 5-gram LM samo nad train transkriptima"),
-            code("""
-            from lipnet.decoder import BeamSearchConfig, CharacterNGramLM, prefix_beam_decode
-            from lipnet.evaluation import paired_bootstrap_delta, slot_error_analysis
-            from lipnet.train import greedy_decode, sequence_metrics
-
-            language_model = CharacterNGramLM(
-                order=5,
-                smoothing=0.1,
-                vocabulary=range(1, 1 + len(SERBIAN_LETTERS)),
-            ).fit(train_token_sequences)
-            assert language_model.training_sequences == len(datasets['train'])
-            print('LM training transkripti:', language_model.training_sequences)
-            print('Validation/test transkripti nisu korišćeni za fit.')
-
-            def decode_cached(split_name, config=None, use_lm=False):
-                split = cache['splits'][split_name]
-                started = time.perf_counter()
-                predictions = []
-                for index, logits in enumerate(split['logits'], start=1):
-                    if config is None:
-                        predictions.extend(greedy_decode(logits.unsqueeze(0)))
-                    else:
-                        predictions.extend(prefix_beam_decode(
-                            logits.unsqueeze(0),
-                            config=config,
-                            language_model=language_model if use_lm else None,
-                        ))
-                    if index % 100 == 0 or index == len(split['logits']):
-                        print(split_name, index, '/', len(split['logits']), end='\\r')
-                print()
-                return {
-                    'predictions': predictions,
-                    'references': split['references'],
-                    'metrics': sequence_metrics(predictions, split['references']),
-                    'seconds': time.perf_counter() - started,
-                }
-            """),
-            md("### 4. Validation bira po jedan beam bez LM-a i beam + LM"),
-            code("""
-            TOKEN_TOPK = 8
-            probe_full = BeamSearchConfig(beam_width=25)
-            probe_pruned = BeamSearchConfig(beam_width=25, token_topk=TOKEN_TOPK)
-            probe_logits = cache['splits']['validation']['logits'][:25]
-            probe_full_predictions = [
-                prefix_beam_decode(logits.unsqueeze(0), config=probe_full)[0]
-                for logits in probe_logits
-            ]
-            probe_pruned_predictions = [
-                prefix_beam_decode(logits.unsqueeze(0), config=probe_pruned)[0]
-                for logits in probe_logits
-            ]
-            pruning_probe_agreement = sum(
-                left == right
-                for left, right in zip(probe_full_predictions, probe_pruned_predictions)
-            ) / len(probe_logits)
-            assert pruning_probe_agreement >= 0.95, (
-                'Top-k pruning se nedovoljno slaže sa punim beam-om; povećaj TOKEN_TOPK.',
-                pruning_probe_agreement,
-            )
-            print('Top-k/full beam probe agreement:', pruning_probe_agreement)
-
-            tuning_payload = {
-                'schema_version': 1,
-                'checkpoint_sha256': checkpoint_sha256,
-                'validation_split_signature': split_signatures['validation'],
-                'lm': {'order': 5, 'smoothing': 0.1, 'training_split': 'train_only'},
-                'runs': {},
-            }
-            if DECODER_TUNING.exists():
-                candidate = json.loads(DECODER_TUNING.read_text(encoding='utf-8'))
-                expected_header = {key: tuning_payload[key] for key in tuning_payload if key != 'runs'}
-                candidate_header = {key: candidate.get(key) for key in expected_header}
-                if candidate_header == expected_header:
-                    tuning_payload = candidate
-                    print('Nastavljam validation tuning:', len(tuning_payload['runs']), 'run-ova')
-
-            def validation_run(name, family, config=None, use_lm=False):
-                serialized_config = asdict(config) if config is not None else None
-                cached = tuning_payload['runs'].get(name)
-                if cached is not None and cached.get('config') == serialized_config:
-                    print(name, '— učitano iz validation cache-a', cached['metrics'])
-                    return cached
-                output = decode_cached('validation', config=config, use_lm=use_lm)
-                run = {
-                    'family': family,
-                    'config': serialized_config,
-                    'metrics': output['metrics'],
-                    'seconds': output['seconds'],
-                }
-                tuning_payload['runs'][name] = run
-                DECODER_TUNING.write_text(
-                    json.dumps(tuning_payload, indent=2, ensure_ascii=False) + '\\n',
-                    encoding='utf-8',
-                )
-                print(name, run['metrics'])
-                return run
-
-            validation_runs = {
-                'greedy': validation_run('greedy', 'greedy'),
-            }
-
-            for width in (10, 25, 50):
-                name = f'beam_w{width}_nolm'
-                config = BeamSearchConfig(beam_width=width, token_topk=TOKEN_TOPK)
-                validation_runs[name] = validation_run(name, 'beam_nolm', config=config)
-
-            # Originalni rad koristi width=200, alpha=1, beta=1.5 na engleskom GRID-u.
-            # Za srpski AI-SPEAK alpha/beta se pošteno biraju samo na validation splitu.
-            for lm_weight in (0.25, 0.5, 1.0):
-                for word_bonus in (0.0, 0.5, 1.5):
-                    name = f'beam_w50_lm_a{lm_weight}_b{word_bonus}'
-                    config = BeamSearchConfig(
-                        beam_width=50,
-                        lm_weight=lm_weight,
-                        word_bonus=word_bonus,
-                        token_topk=TOKEN_TOPK,
-                    )
-                    validation_runs[name] = validation_run(
-                        name, 'beam_lm', config=config, use_lm=True
-                    )
-
-            def selection_key(item):
-                metrics = item[1]['metrics']
-                return (metrics['wer'], metrics['cer'], -metrics['sentence_exact_match'])
-
-            best_nolm_name, best_nolm = min(
-                ((name, run) for name, run in validation_runs.items()
-                 if run['family'] == 'beam_nolm'),
-                key=selection_key,
-            )
-            best_lm_name, best_lm = min(
-                ((name, run) for name, run in validation_runs.items()
-                 if run['family'] == 'beam_lm'),
-                key=selection_key,
-            )
-            print('Izabran bez LM:', best_nolm_name, best_nolm['metrics'])
-            print('Izabran sa LM:', best_lm_name, best_lm['metrics'])
-            """),
-            md("## Checks\n\n### 5. Zaključane konfiguracije evaluiraj jednom na testu"),
-            code("""
-            test_runs = {
-                'greedy': {
-                    'family': 'greedy',
-                    'config': None,
-                    **decode_cached('test'),
-                },
-                best_nolm_name: {
-                    'family': 'beam_nolm',
-                    'config': best_nolm['config'],
-                    **decode_cached(
-                        'test', config=BeamSearchConfig(**best_nolm['config'])
-                    ),
-                },
-                best_lm_name: {
-                    'family': 'beam_lm',
-                    'config': best_lm['config'],
-                    **decode_cached(
-                        'test', config=BeamSearchConfig(**best_lm['config']), use_lm=True
-                    ),
-                },
-            }
-
-            for metric in ('wer', 'cer', 'sentence_exact_match'):
-                assert math.isclose(
-                    test_runs['greedy']['metrics'][metric],
-                    phase5_results['test'][metric],
-                    rel_tol=0.0,
-                    abs_tol=1e-12,
-                ), (metric, test_runs['greedy']['metrics'][metric], phase5_results['test'][metric])
-            print('PASS: greedy test se tačno poklapa sa Phase 5 rezultatom.')
-            for name, run in test_runs.items():
-                print(name, json.dumps(run['metrics'], ensure_ascii=False), f"{run['seconds']:.1f}s")
-            """),
-            md("### 6. Paired bootstrap, analiza pozicija i trajni artefakti"),
-            code("""
-            SLOT_NAMES = ('komanda', 'slovo_1', 'smer', 'slovo_2', 'dan', 'broj')
-            baseline = test_runs['greedy']
-            comparisons = {}
-            for name, run in test_runs.items():
-                if name == 'greedy':
-                    continue
-                comparisons[name] = {
-                    'paired_bootstrap_vs_greedy': paired_bootstrap_delta(
-                        baseline['predictions'], run['predictions'], run['references'],
-                        iterations=2000, confidence=0.95, seed=0,
-                    ),
-                    'slot_analysis': slot_error_analysis(
-                        run['predictions'], run['references'], slot_names=SLOT_NAMES,
-                    ),
-                }
-
-            def compact_run(run):
-                return {
-                    'family': run['family'],
-                    'config': run['config'],
-                    'metrics': run['metrics'],
-                    'seconds': run['seconds'],
-                }
-
-            payload = {
-                'phase': 7,
-                'protocol': 'ctc-prefix-beam-char5gram-validation-selected-v1',
-                'checkpoint_sha256': checkpoint_sha256,
-                'metrics_definition': 'corpus-edit-distance-v1',
-                'lm': {
-                    'type': 'character_backoff_add_k',
-                    'order': language_model.order,
-                    'smoothing': language_model.smoothing,
-                    'training_split': 'train_only',
-                    'training_sequences': language_model.training_sequences,
-                },
-                'selection_metric': 'validation_wer_then_cer_then_exact',
-                'token_pruning_probe': {
-                    'samples': len(probe_logits),
-                    'token_topk': TOKEN_TOPK,
-                    'agreement_with_full_beam': pruning_probe_agreement,
-                },
-                'validation_runs': {
-                    name: compact_run(run) for name, run in validation_runs.items()
-                },
-                'selected_test_runs': {
-                    name: compact_run(run) for name, run in test_runs.items()
-                },
-                'comparisons': comparisons,
-                'environment': {
-                    'torch_version': torch.__version__,
-                    'cuda_version': torch.version.cuda,
-                    'gpu': torch.cuda.get_device_name(0),
-                },
-            }
-            DECODER_RESULTS.write_text(
-                json.dumps(payload, indent=2, ensure_ascii=False) + '\\n', encoding='utf-8'
-            )
-            prediction_payload = {
-                'phase': 7,
-                'checkpoint_sha256': checkpoint_sha256,
-                'references': baseline['references'],
-                'predictions': {
-                    name: run['predictions'] for name, run in test_runs.items()
-                },
-            }
-            DECODER_PREDICTIONS.write_text(
-                json.dumps(prediction_payload, indent=2, ensure_ascii=False) + '\\n',
-                encoding='utf-8',
-            )
-
-            names = list(test_runs)
-            figure, axes = plt.subplots(1, 2, figsize=(12, 4))
-            for axis, metric in zip(axes, ('wer', 'cer')):
-                values = [test_runs[name]['metrics'][metric] for name in names]
-                axis.barh(names, values)
-                axis.set_xlabel(metric.upper())
-                axis.grid(axis='x', alpha=0.25)
-                for index, value in enumerate(values):
-                    axis.text(value, index, f' {value:.4f}', va='center')
-            plt.tight_layout()
-            figure.savefig(DECODER_PLOT, dpi=160, bbox_inches='tight')
-            plt.show()
-            print('Sačuvano:', DECODER_RESULTS)
-            print('Sačuvano:', DECODER_PREDICTIONS)
-            print('Sačuvano:', DECODER_PLOT)
-            """),
-            md("""
-            ## Next Steps
-
-            Faza 7 je završena samo ako greedy `assert` prođe, LM navodi `train_only`,
-            validation izbor je zabeležen i `decoder_results_v1.json` sadrži paired bootstrap
-            intervale. Ovi rezultati se zatim prenose u repo i koriste za konsolidovani
-            notebook za odbranu; finalni izveštaj se piše odvojeno, po naknadno dogovorenom
-            formatu.
-            """),
-        ],
-        gpu=True,
-    )
-
-
 def main() -> None:
     OUTPUT.mkdir(parents=True, exist_ok=True)
     notebooks = {
@@ -2129,7 +1673,6 @@ def main() -> None:
         "04_faza_4_transfer_ctc_smoke.ipynb": phase4(),
         "05_faza_5_baseline_finetuning.ipynb": phase5(),
         "06_faza_6_robustness_experiments.ipynb": phase6(),
-        "07_faza_7_decoder_search.ipynb": phase7(),
     }
     for name, value in notebooks.items():
         nbf.write(value, OUTPUT / name)

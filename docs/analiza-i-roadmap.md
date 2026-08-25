@@ -1,24 +1,23 @@
 # VIPL-first roadmap za LipNet projekat
 
-Datum revizije: 25. avgust 2026.
+Datum revizije: 24. avgust 2026.
 
 ## Status implementacije
 
-Kod i Colab notebookovi za Faze 0–7 su pripremljeni. Lokalna provera ima 33
-testa. Length-aware GPU rezultati Faza 04–06 su potvrđeni i njihove sanitizovane
-kopije su u [docs/results](results). Faza 7 čeka Colab izvršavanje nad postojećim
-checkpoint-om i mouth ZIP-om; BlazeFace preprocessing se ne ponavlja.
+Kod i čisti Colab notebookovi za Faze 0–6 su pripremljeni. Lokalni CPU testovi
+prolaze, ali GPU rezultati Faza 04–06 moraju ponovo da se izračunaju nakon
+ispravke vremenskog padding-a. Stare brojke su dokumentovane, ali nisu označene
+kao potvrđene u [auditu rezultata](provera-rezultata.md).
 
 | Faza | Kod/notebook | Izvršni status |
 |---:|---|---|
-| 0 | pin, licenca, inventar i legacy isolation check | kod spreman |
-| 1 | originalni VIPL naspram lokalnog GRID parity toka | kod spreman |
-| 2 | VIPL demo MP4 → mouth JPEG + QA/log | završeni ZIP se ponovo koristi; bez novog run-a |
-| 3 | srpski Dataset, split i promenljivi collate | potvrđeno: 2.877/540/540 |
-| 4 | 29-klasni head, transfer audit i CTC backward | potvrđeno na L4 |
-| 5 | length-aware fine-tuning, resume, best-WER izbor i test | potvrđeno, best checkpoint zaključan SHA-256 hashom |
-| 6 | rezolucija, blur, crop pomeranje i baseline recheck | potvrđeno nad 540 test uzoraka |
-| 7 | greedy/beam/5-gram decoder poređenje | implementirano i lokalno testirano; čeka Colab run |
+| 0 | pin, licenca, inventar i legacy isolation check | spremno za CPU Run all |
+| 1 | originalni VIPL naspram lokalnog GRID parity toka | spremno za Colab GPU |
+| 2 | VIPL demo MP4 → mouth JPEG + QA/log | spremno za Colab GPU |
+| 3 | srpski Dataset, split i promenljivi collate | spremno posle artefakta Faze 2 |
+| 4 | 29-klasni head, transfer audit i CTC backward | spremno posle Faze 3, Colab GPU |
+| 5 | length-aware fine-tuning, resume, best-WER izbor i test | spremno za novi GPU run |
+| 6 | rezolucija, blur, crop pomeranje i baseline recheck | spremno posle novog Phase 5 checkpoint-a |
 
 ## 1. Nova odluka
 
@@ -87,7 +86,7 @@ licencirani kod mora zadržati originalno obaveštenje o licenci i jasno naveden
 | Split | upstream tekstualne liste | Za lokalni korpus koristiti eksplicitne speaker liste u konfiguraciji i dinamičko pronalaženje fajlova; bez bogatog CSV manifesta |
 | Batch/padding | `vid_padding=75`, `txt_padding=200` | Prvo reprodukovati bez izmene na GRID-u; za promenljive AI-SPEAK klipove napraviti najmanju potrebnu izmenu collate/padding logike |
 | CTC | `nn.CTCLoss()` i stvarne dužine | Preuzeti tok; dodati samo validaciju dužina i savremeni oblik tenzora gde je nužno |
-| Dekodiranje | greedy argmax + collapse repeats/blanks | Zadržati kao zaključan baseline; tek u Fazi 7 dodati decoder-only prefix beam i train-only karakterni 5-gram LM |
+| Dekodiranje | greedy argmax + collapse repeats/blanks | Preuzeti; bez beam search-a, jezičkog modela ili gramatičkog korektora |
 | Metrike | upstream per-sentence WER/CER | Koristiti corpus-level edit greške / ukupan referentni denominator i dodati sentence exact match |
 | Trening | Adam, validacija i checkpoint iz `main.py` | Zadržati kao početni baseline; menjati samo device, konfiguraciju i parametre potrebne za Colab |
 
@@ -128,7 +127,7 @@ scripts/
 data/
 └── splits.py             # eksplicitni speaker ID-jevi; bez manifesta sa uzorcima
 playground/
-└── 00_...07_...          # fazni notebookovi, generisani iz jednog skripta
+└── 00_...06_...          # fazni notebookovi, generisani iz jednog skripta
 docs/
 ├── upstream-diff.md      # obavezna evidencija minimalnih odstupanja
 ├── provera-rezultata.md
@@ -265,34 +264,7 @@ CER, WER, sentence exact match i nekoliko kvalitativnih predikcija.
 **Prihvatni kriterijum:** svi scenariji razlikuju samo testiranu perturbaciju;
 split, checkpoint i dekoder ostaju isti.
 
-### Faza 7 — CTC beam search i karakterni jezički model
-
-**Cilj:** povezati praktični deo sa dekodiranjem iz originalnog LipNet rada bez
-promene istreniranog vizuelnog modela.
-
-- jednom izračunati i na Drive-u keširati validation/test logit-e za tačno isti
-  Phase 5 checkpoint;
-- reprodukovati greedy test metrike bit-po-metrici;
-- na validation splitu uporediti prefix beam širine 10, 25 i 50 bez LM-a;
-- pre pune pretrage potvrditi na probe uzorku da top-8 token pruning daje najmanje
-  95% istih predikcija kao beam nad celim alfabetom;
-- karakterni backoff 5-gram LM fitovati isključivo na train transkriptima;
-- `alpha`/LM težinu i word bonus birati samo prema validation WER-u, zatim CER-u
-  i exact match-u;
-- na testu jednom evaluirati greedy, izabrani beam bez LM-a i izabrani beam + LM;
-- prijaviti isto corpus-level WER/CER/exact, vreme dekodiranja, paired bootstrap
-  intervale i greške po šest pozicija AI-SPEAK rečenice;
-- sačuvati `decoder_emissions_v1.pt`, `decoder_results_v1.json`,
-  `decoder_predictions_v1.json` i grafikon u istom zaključanom Drive folderu.
-
-Originalni parametri rada (beam 200, α=1, β=1,5) ostaju teorijska referenca za
-engleski GRID; ne prenose se nekritički na srpski skup bez validation izbora.
-
-**Prihvatni kriterijum:** nema treninga ni preprocessinga; checkpoint hash je
-isti kao u Fazi 5, greedy baseline je identičan i ni validation ni test
-transkripti nisu korišćeni za fit jezičkog modela.
-
-### Faza 8 — Jedan Colab notebook i finalni izveštaj
+### Faza 7 — Jedan Colab notebook i finalni izveštaj
 
 **Cilj:** omogućiti odbranu projekta iz jednog proverljivog toka.
 
@@ -326,8 +298,6 @@ baseline fine-tuning
         ↓
 rezolucija / blur / jitter evaluacije
         ↓
-greedy / beam / 5-gram decoder evaluacija
-        ↓
 Colab demonstracija i izveštaj
 ```
 
@@ -347,11 +317,7 @@ Testovi treba prvenstveno da potvrde kompatibilnost sa upstream-om:
 - isti kraći klip daje iste validne logite samostalno i u padded batch-u;
 - WER/CER koriste zbir edit grešaka i zbir referentnih denominatora;
 - checkpoint audit potvrđuje da je preskočen samo srpski head;
-- jedan batch prolazi forward, CTC loss i backward;
-- prefix beam rezultat na malom primeru odgovara egzaktnoj sumi svih CTC putanja;
-- LM koristi samo non-blank tokene i train transkripte;
-- paired bootstrap je determinističan i slot analiza pravilno poravnava
-  umetanja i brisanja.
+- jedan batch prolazi forward, CTC loss i backward.
 
 Novi test nema vrednost ako proverava ponašanje koje je uvedeno samo starim
 manifest/ROI pipeline-om.
@@ -365,8 +331,6 @@ manifest/ROI pipeline-om.
 | Full-frame MP4 nije GRID mouth crop | Ponovo koristiti poravnanje i crop iz VIPL `demo.py` |
 | Srpski head nije kompatibilan sa checkpoint-om | Učitati backbone/GRU; novi head inicijalizovati istim pravilom |
 | Mali skup i overfitting | Speaker-disjoint test, rano zaustavljanje i ograničen broj eksperimenata |
-| Jezički model prikriva vizuelne greške | Posebno prijaviti beam bez LM-a i beam + LM; LM fit samo na train-u |
-| Decoder hiperparametri procure u test | Sve birati na validation WER/CER, test pokrenuti jednom |
 | Privatnost snimaka | MP4 i mouth frejmovi ostaju van Git-a |
 | Upstream je teško reprodukovati | Prvo zaključati jedan GRID parity primer i tek zatim menjati kod |
 | Nejasno poreklo koda | Pinovan SHA, MIT licenca i `upstream-diff.md` |
@@ -384,7 +348,6 @@ Projekat je završen kada:
 - postoji baseline checkpoint evaluiran na neviđenim govornicima;
 - završeni su eksperimenti rezolucije, blur-a i crop jitter-a;
 - prijavljeni su CER, WER, exact match i kvalitativne greške;
-- završeno je kontrolisano greedy/beam/5-gram decoder poređenje;
 - jedan Colab notebook reprodukuje ključni tok za odbranu;
 - privatni snimci, frejmovi i veliki checkpoint-i nisu poslati u Git.
 
