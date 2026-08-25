@@ -2211,8 +2211,15 @@ def phase8() -> nbf.NotebookNode:
                 destination = REPORT_DIR / filename
                 figure.savefig(destination, dpi=180, bbox_inches='tight', facecolor='white')
                 plt.show()
+                plt.close(figure)
                 print('Sačuvano:', destination)
-                return destination
+
+            def chart_header(axis, title, subtitle):
+                axis.set_title(title, loc='left', weight='bold', pad=30)
+                axis.text(
+                    0, 1.015, subtitle, transform=axis.transAxes,
+                    color='#5B6B78', va='bottom',
+                )
             """),
             md("## Podaci i integritet\n\n### 2. Učitaj potvrđene artefakte Faza 3–7"),
             code("""
@@ -2247,14 +2254,16 @@ def phase8() -> nbf.NotebookNode:
             md("### 3. Prikaži speaker-disjoint podelu"),
             code("""
             split_order = ('train', 'validation', 'test')
-            split_labels = ('Train', 'Validation', 'Test')
+            split_labels = ('Trening', 'Validacija', 'Test')
             split_values = [phase3['samples_by_split'][name] for name in split_order]
 
             figure, axis = plt.subplots(figsize=(8, 4.5))
             bars = axis.bar(split_labels, split_values, color=COLORS['blue'], edgecolor=COLORS['ink'])
-            axis.set_title('Speaker-disjoint podela AI-SPEAK skupa', loc='left', weight='bold')
-            axis.text(0, 1.01, 'Broj primera po skupu; govornici se ne preklapaju',
-                      transform=axis.transAxes, color='#5B6B78')
+            chart_header(
+                axis,
+                'Speaker-disjoint podela AI-SPEAK skupa',
+                'Broj primera po skupu; govornici se ne preklapaju',
+            )
             axis.set_ylabel('Broj primera')
             axis.set_ylim(0, max(split_values) * 1.18)
             axis.grid(axis='y', color=COLORS['grid'], alpha=0.7)
@@ -2399,14 +2408,21 @@ def phase8() -> nbf.NotebookNode:
             code("""
             frame_count = int(sample['vid_len'])
             frame_indices = np.linspace(0, frame_count - 1, 6, dtype=int)
-            figure, axes = plt.subplots(1, len(frame_indices), figsize=(14, 2.8))
+            figure, axes = plt.subplots(1, len(frame_indices), figsize=(13, 2.7))
             for axis, frame_index in zip(axes, frame_indices):
                 frame = sample['vid'][:, frame_index].permute(1, 2, 0).numpy()[..., ::-1]
                 axis.imshow(np.clip(frame, 0, 1))
                 axis.set_title(f'frejm {frame_index}')
                 axis.axis('off')
-            figure.suptitle('Mouth ROI kroz demonstracionu sekvencu', x=0.01, ha='left', weight='bold')
-            figure.text(0.01, 0.01, f'Referenca: {reference}', color='#5B6B78')
+            figure.suptitle(
+                'Region usana kroz demonstracionu sekvencu',
+                x=0.02, y=0.98, ha='left', weight='bold',
+            )
+            figure.text(
+                0.02, 0.84, f'Referenca: {reference}',
+                color='#5B6B78', ha='left',
+            )
+            figure.subplots_adjust(left=0.02, right=0.99, top=0.72, bottom=0.08, wspace=0.16)
             finish_figure(figure, '02_gpu_demo_mouth_frames.png')
             """),
             md("## Rezultati\n\n### 6. Robustnost ulaza"),
@@ -2415,7 +2431,7 @@ def phase8() -> nbf.NotebookNode:
                 'baseline_128x64', 'resolution_96x48', 'resolution_64x32',
                 'gaussian_blur_5_sigma1', 'crop_shift_dx4_dy2',
             )
-            condition_labels = ('Baseline 128×64', '96×48', '64×32', 'Gaussian blur', 'Crop shift')
+            condition_labels = ('Osnovni ulaz\\n128×64', '96×48', '64×32', 'Zamućenje', 'Pomeranje\\nROI-ja')
             wer_values = [phase6['conditions'][name]['wer'] for name in condition_order]
             cer_values = [phase6['conditions'][name]['cer'] for name in condition_order]
             positions = np.arange(len(condition_order))
@@ -2426,15 +2442,17 @@ def phase8() -> nbf.NotebookNode:
                                 color=COLORS['blue'], edgecolor=COLORS['ink'])
             cer_bars = axis.bar(positions + width / 2, cer_values, width, label='CER',
                                 color=COLORS['orange'], edgecolor=COLORS['ink'])
-            axis.set_title('Robustnost modela na promene ulaza', loc='left', weight='bold')
-            axis.text(0, 1.01, 'Corpus-level metrike nad istih 540 test primera',
-                      transform=axis.transAxes, color='#5B6B78')
+            chart_header(
+                axis,
+                'Robustnost modela na promene ulaza',
+                'Corpus-level metrike nad istih 540 test primera',
+            )
             axis.set_xticks(positions, condition_labels)
             axis.set_ylim(0, 0.52)
             axis.yaxis.set_major_formatter(PercentFormatter(1.0))
             axis.grid(axis='y', color=COLORS['grid'], alpha=0.7)
             axis.spines[['top', 'right']].set_visible(False)
-            axis.legend(frameon=False, ncol=2)
+            axis.legend(frameon=False, ncol=2, loc='upper right')
             axis.bar_label(wer_bars, labels=[f'{value:.1%}' for value in wer_values], padding=3, fontsize=9)
             axis.bar_label(cer_bars, labels=[f'{value:.1%}' for value in cer_values], padding=3, fontsize=9)
             finish_figure(figure, '03_robustness.png')
@@ -2489,16 +2507,20 @@ def phase8() -> nbf.NotebookNode:
             axes[1].set_yticks(y_positions, delta_labels)
             axes[1].invert_yaxis()
             axes[1].set_xlabel('Promena prema greedy baseline-u (procentni poeni)')
-            axes[1].set_title('Paired bootstrap, 95% interval', loc='left', weight='bold')
+            axes[1].set_title('Upareni bootstrap — 95% interval', loc='left', weight='bold')
             axes[1].grid(axis='x', color=COLORS['grid'], alpha=0.7)
             axes[1].spines[['top', 'right']].set_visible(False)
             for value, y_position in zip(delta_values, y_positions):
                 axes[1].text(value, y_position - 0.18, f'{value:+.2f} p.p.', ha='center', fontsize=9)
+            axes[1].set_xlim(-5.05, 0.25)
 
-            figure.suptitle('Uticaj CTC dekodera na test rezultat', x=0.01, ha='left', weight='bold')
+            figure.suptitle(
+                'Uticaj CTC dekodera na test rezultat',
+                x=0.01, y=0.99, ha='left', weight='bold',
+            )
             figure.text(0.01, 0.01, 'N = 540; negativna delta označava poboljšanje WER-a/CER-a',
                         color='#5B6B78')
-            figure.tight_layout(rect=(0, 0.05, 1, 0.94))
+            figure.tight_layout(rect=(0, 0.06, 1, 0.92))
             finish_figure(figure, '04_decoder_comparison.png')
             """),
             md("## Analiza grešaka\n\n### 8. Uporedi tačnost po šest pozicija rečenice"),
@@ -2522,15 +2544,17 @@ def phase8() -> nbf.NotebookNode:
             ):
                 values = [slot_analyses[name]['slots'][slot]['accuracy'] for slot in SLOT_NAMES]
                 axis.bar(positions + offset, values, width, label=label, color=color, edgecolor=COLORS['ink'])
-            axis.set_title('Tačnost dekodera po poziciji AI-SPEAK rečenice', loc='left', weight='bold')
-            axis.text(0, 1.01, 'Poravnata tačnost nad 540 test primera',
-                      transform=axis.transAxes, color='#5B6B78')
+            chart_header(
+                axis,
+                'Tačnost dekodera po poziciji AI-SPEAK rečenice',
+                'Poravnata tačnost nad 540 test primera',
+            )
             axis.set_xticks(positions, ('Komanda', 'Slovo 1', 'Smer', 'Slovo 2', 'Dan', 'Broj'))
             axis.set_ylim(0, 1.0)
             axis.yaxis.set_major_formatter(PercentFormatter(1.0))
             axis.grid(axis='y', color=COLORS['grid'], alpha=0.7)
             axis.spines[['top', 'right']].set_visible(False)
-            axis.legend(frameon=False, ncol=3, loc='upper center')
+            axis.legend(frameon=False, ncol=3, loc='upper center', bbox_to_anchor=(0.5, 0.99))
             finish_figure(figure, '05_slot_accuracy.png')
             """),
             md("### 9. Matrice konfuzije finalnog beam+LM dekodera"),
@@ -2556,13 +2580,19 @@ def phase8() -> nbf.NotebookNode:
             assert final_confusions['eligible_samples'] == 540
 
             selected_slots = ('komanda', 'smer', 'dan', 'broj')
-            figure, axes = plt.subplots(2, 2, figsize=(17, 13))
+            figure, axes = plt.subplots(2, 2, figsize=(17, 13), layout='constrained')
             for axis, slot_name in zip(axes.flat, selected_slots):
                 payload = final_confusions['slots'][slot_name]
-                matrix = np.asarray(payload['row_normalized'])
+                full_counts = np.asarray(payload['counts'])
+                visible_columns = np.flatnonzero(full_counts.sum(axis=0) > 0)
+                matrix = np.asarray(payload['row_normalized'])[:, visible_columns]
+                prediction_labels = [payload['prediction_labels'][index] for index in visible_columns]
                 image = axis.imshow(matrix, cmap='Blues', vmin=0, vmax=1, aspect='auto')
                 axis.set_title(slot_name.capitalize(), loc='left', weight='bold')
-                axis.set_xticks(range(len(payload['prediction_labels'])), payload['prediction_labels'], rotation=45, ha='right')
+                axis.set_xticks(
+                    range(len(prediction_labels)), prediction_labels,
+                    rotation=35, ha='right', rotation_mode='anchor',
+                )
                 axis.set_yticks(range(len(payload['reference_labels'])), payload['reference_labels'])
                 axis.set_xlabel('Predikcija')
                 axis.set_ylabel('Referenca')
@@ -2572,13 +2602,15 @@ def phase8() -> nbf.NotebookNode:
                         if value >= 0.01:
                             axis.text(column, row, f'{value:.0%}', ha='center', va='center',
                                       fontsize=8, color='white' if value > 0.55 else COLORS['ink'])
-            colorbar = figure.colorbar(image, ax=axes.ravel().tolist(), shrink=0.72)
+            colorbar = figure.colorbar(
+                image, ax=axes.ravel().tolist(), shrink=0.72, pad=0.025,
+                label='Udeo unutar referentnog reda',
+            )
             colorbar.ax.yaxis.set_major_formatter(PercentFormatter(1.0))
-            figure.suptitle('Matrice konfuzije po semantičkim pozicijama — beam + 5-gram LM',
-                            x=0.04, ha='left', weight='bold')
-            figure.text(0.04, 0.01, 'Redovi su normalizovani; „ostalo” su reči van očekivanog slota.',
-                        color='#5B6B78')
-            figure.subplots_adjust(top=0.92, bottom=0.12, hspace=0.42, wspace=0.28)
+            figure.suptitle(
+                'Matrice konfuzije po semantičkim pozicijama — beam + 5-gram LM',
+                x=0.01, ha='left', weight='bold',
+            )
             finish_figure(figure, '06_slot_confusion_matrices.png')
             """),
             md("### 10. Najčešće zamene slova"),
