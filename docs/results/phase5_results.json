@@ -1,0 +1,94 @@
+{
+  "phase": 5,
+  "training_protocol": "length-aware-bigru-corpus-metrics-v2",
+  "metrics_definition": "corpus-edit-distance-v1",
+  "upstream_commit": "40209e09c49553c00c25c7d41faa3706aea3c625",
+  "config": {
+    "max_epochs": 45,
+    "warmup_epochs": 3,
+    "early_stopping_patience": 5,
+    "batch_size": 2,
+    "backbone_lr": 2e-05,
+    "head_lr": 0.0001,
+    "num_workers": 2,
+    "random_seed": 0
+  },
+  "best_epoch": 42,
+  "best_validation_wer": 0.49722222222222223,
+  "best_checkpoint_sha256": "203c2707b5c327c8b164ab573f5550390def3aacf0ff190fc9bd760745e2f9c8",
+  "validation": {
+    "loss": 0.7389641046524048,
+    "wer": 0.49722222222222223,
+    "cer": 0.2201864147088866,
+    "sentence_exact_match": 0.0
+  },
+  "test": {
+    "loss": 0.56529464473327,
+    "wer": 0.4524691358024691,
+    "cer": 0.18238672622846203,
+    "sentence_exact_match": 0.0
+  },
+  "test_samples": 540,
+  "qualitative": [
+    {
+      "reference": "obriši d levo i nedelja dva",
+      "prediction": "obraši b levo nedeltak dva"
+    },
+    {
+      "reference": "dalje z dole i četvrtak devet",
+      "prediction": "kaje r gole četvrtak etrt"
+    },
+    {
+      "reference": "kraj r desno j sreda devet",
+      "prediction": "kraj h desno nedelja šest"
+    },
+    {
+      "reference": "dalje z levo r ponedeljak osam",
+      "prediction": "daje b levo ponedeljak šest"
+    },
+    {
+      "reference": "pošalji lj levo g četvrtak četiri",
+      "prediction": "pošalji i levo četvrtak četiri"
+    },
+    {
+      "reference": "odustani k desno m subota dva",
+      "prediction": "odustani d levo subota dva"
+    },
+    {
+      "reference": "odustani h dole a ponedeljak četiri",
+      "prediction": "odustani š gore ponedeljak četiri"
+    },
+    {
+      "reference": "početak f napred o subota sedam",
+      "prediction": "počštaji m levo subota sedan"
+    },
+    {
+      "reference": "kraj e levo b sreda jedan",
+      "prediction": "kraj h levo sreda osam"
+    },
+    {
+      "reference": "potvrdi d desno l ponedeljak sedam",
+      "prediction": "obriši n desno ponedeljak sedam"
+    }
+  ],
+  "ctc_filter": {
+    "train": {
+      "valid": 2877,
+      "invalid": 0
+    },
+    "validation": {
+      "valid": 540,
+      "invalid": 0
+    },
+    "test": {
+      "valid": 540,
+      "invalid": 0
+    }
+  },
+  "environment": {
+    "torch_version": "2.11.0+cu128",
+    "cuda_version": "12.8",
+    "gpu": "NVIDIA L4"
+  }
+}
+
