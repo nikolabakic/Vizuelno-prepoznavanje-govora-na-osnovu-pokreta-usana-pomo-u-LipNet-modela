@@ -12,6 +12,8 @@ video-snimci, mouth frejmovi i checkpoint-i ostaju van Git repozitorijuma.
 | [`phase4_transfer_ctc_audit.json`](phase4_transfer_ctc_audit.json) | transfer VIPL težina, oblik izlaza i CTC backward provera |
 | [`phase5_results.json`](phase5_results.json) | konfiguracija treninga, validation/test metrike i primeri predikcija |
 | [`phase6_robustness_results.json`](phase6_robustness_results.json) | rezultati za rezoluciju, blur i pomeranje regiona usana |
+| [`decoder_results_v1.json`](decoder_results_v1.json) | Phase 7 konfiguracije, metrike, bootstrap intervali i analiza pozicija |
+| [`decoder_predictions_v1.json`](decoder_predictions_v1.json) | svih 540 test referenci i predikcija za tri dekodera |
 
 ## Glavne metrike
 
@@ -27,6 +29,34 @@ video-snimci, mouth frejmovi i checkpoint-i ostaju van Git repozitorijuma.
 WER i CER su corpus-level metrike: edit greške se sabiraju nad celim skupom, a
 zatim dele ukupnim brojem referentnih reči, odnosno karaktera.
 
+## Faza 07 — finalni decoder
+
+Faza 07 je završena u izvršenom notebooku
+[`playground/07_faza_7_decoder_search.ipynb`](../../playground/07_faza_7_decoder_search.ipynb).
+Greedy kontrola je reprodukovala rezultat faze 05, nakon čega su validation-only
+izbor i zaključana test evaluacija dali sledeće rezultate:
+
+| Dekoder | Test WER | Test CER | Exact match |
+|---|---:|---:|---:|
+| Greedy | 45,25% | 18,24% | 0,00% |
+| Prefix beam bez LM-a | 44,88% | 18,10% | 0,00% |
+| Prefix beam + train-only 5-gram LM | **41,20%** | **14,70%** | **0,37%** |
+
+Izabrana LM konfiguracija koristi beam width 50, `α = 1,0` i `β = 0,5`.
+Paired bootstrap potvrđuje smanjenje WER-a od 4,04 procentna poena, sa 95%
+intervalom poverenja od -4,81 do -3,30 procentnih poena. Rezultatni i prediction
+artefakt dostupni su direktno u ovom folderu, dok su njihove izvorne kopije i
+grafikon `decoder_metrics_v1.png` sačuvani uz checkpoint na Google Drive-u.
+
+## Faza 08 — figure za izveštaj
+
+Konsolidovani notebook 08 koristi gornje sanitizovane artefakte i čuva sedam
+izvedenih PNG prikaza u `MyDrive/LipNet/phase8_report/`. Figure se ne tretiraju
+kao novi eksperiment: dataset, robustnost i decoder vrednosti dolaze iz Faza
+03–07, dok se slot-konfuzije i kvalitativni primeri računaju iz sačuvanih 540
+test predikcija. Status završnog Colab izvršavanja prati se u
+[`docs/provera-rezultata.md`](../provera-rezultata.md).
+
 ## Poreklo i integritet
 
 | Lokalni fajl | Google Drive izvor |
@@ -35,6 +65,8 @@ zatim dele ukupnim brojem referentnih reči, odnosno karaktera.
 | `phase4_transfer_ctc_audit.json` | `MyDrive/LipNet/phase4_transfer_ctc_audit.json` |
 | `phase5_results.json` | `MyDrive/LipNet/phase5_length_aware_v2/results.json` |
 | `phase6_robustness_results.json` | `MyDrive/LipNet/phase5_length_aware_v2/robustness_results.json` |
+| `decoder_results_v1.json` | `MyDrive/LipNet/phase5_length_aware_v2/decoder_results_v1.json` |
+| `decoder_predictions_v1.json` | `MyDrive/LipNet/phase5_length_aware_v2/decoder_predictions_v1.json` |
 
 Trening i eksperimenti robustnosti koriste isti izabrani checkpoint:
 

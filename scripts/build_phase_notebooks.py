@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
-"""Generate the reader-facing Colab notebooks for phases 0 through 7."""
+"""Generate the reader-facing Colab notebooks for phases 0 through 8."""
 
 from __future__ import annotations
 
+import argparse
 from pathlib import Path
 from textwrap import dedent
 
@@ -2119,19 +2120,562 @@ def phase7() -> nbf.NotebookNode:
     )
 
 
+def phase8() -> nbf.NotebookNode:
+    return notebook(
+        "Faza 8 — konsolidovani notebook za odbranu",
+        [
+            md("""
+            ## Ukratko
+
+            Ovaj notebook objedinjuje potvrđeni tok vizuelnog prepoznavanja srpskog
+            govora: podatke, model, baseline, robustnost, CTC dekodiranje i analizu
+            grešaka. Ne pokreće novi trening niti preprocessing. Finalni test rezultat
+            beam+5-gram dekodera je **WER 41,20%** i **CER 14,70%** nad 540 govornik-
+            disjoint primera.
+            """),
+            md("""
+            ## Kontekst i metod
+
+            - Zamrznuti mouth frejmovi dolaze iz `ai_speak_lip.zip`.
+            - Model koristi zaključani Phase 5 checkpoint.
+            - Rezultati Faza 3–7 čitaju se iz verzionisanih JSON artefakata.
+            - GPU se koristi samo za demonstraciju jedne predikcije.
+            - Train-only 5-gram LM se ponovo fituje bez validation/test transkripata.
+            - Sve figure se prikazuju inline i čuvaju u `MyDrive/LipNet/phase8_report/`.
+
+            Matrica fonema/vizema iz teorijske prezentacije pripada originalnom LipNet
+            radu na GRID-u. Matrice u ovom notebooku računaju se isključivo iz naših
+            AI-SPEAK test predikcija.
+            """),
+            md("## Setup\n\n### 1. Učitaj repozitorijum i zavisnosti"),
+            code("""
+            import subprocess, sys
+            subprocess.run(
+                [sys.executable, '-m', 'pip', 'install', '-q',
+                 'editdistance>=0.8.1', 'opencv-python-headless>=4.10'],
+                check=True,
+            )
+            """),
+            code(repo_setup_cell(refresh_imports=True)),
+            code("""
+            import hashlib
+            import json
+            import math
+            import zipfile
+            from pathlib import Path
+
+            import editdistance
+            import matplotlib.pyplot as plt
+            from matplotlib.ticker import PercentFormatter
+            import numpy as np
+            import pandas as pd
+            import torch
+            from IPython.display import display
+
+            assert torch.cuda.is_available(), 'Uključi GPU runtime u Colab-u.'
+            DEVICE = torch.device('cuda')
+            torch.manual_seed(0)
+            torch.cuda.manual_seed_all(0)
+            torch.backends.cudnn.benchmark = False
+            torch.backends.cudnn.deterministic = True
+            print('GPU:', torch.cuda.get_device_name(0))
+            """),
+            code(drive_setup_cell()),
+            code("""
+            REPORT_DIR = DRIVE_ROOT / 'phase8_report'
+            REPORT_DIR.mkdir(parents=True, exist_ok=True)
+
+            COLORS = {
+                'ink': '#1B2A36',
+                'blue': '#15728E',
+                'orange': '#E58A2B',
+                'gold': '#D4A72C',
+                'olive': '#6B7D3D',
+                'pink': '#B45A7C',
+                'grid': '#D9E0E5',
+            }
+            plt.rcParams.update({
+                'figure.facecolor': 'white',
+                'axes.facecolor': 'white',
+                'axes.edgecolor': COLORS['ink'],
+                'axes.labelcolor': COLORS['ink'],
+                'text.color': COLORS['ink'],
+                'xtick.color': COLORS['ink'],
+                'ytick.color': COLORS['ink'],
+                'font.size': 11,
+            })
+
+            def finish_figure(figure, filename):
+                destination = REPORT_DIR / filename
+                figure.savefig(destination, dpi=180, bbox_inches='tight', facecolor='white')
+                plt.show()
+                print('Sačuvano:', destination)
+                return destination
+            """),
+            md("## Podaci i integritet\n\n### 2. Učitaj potvrđene artefakte Faza 3–7"),
+            code("""
+            RESULTS_DIR = REPO / 'docs' / 'results'
+
+            def read_json(name):
+                path = RESULTS_DIR / name
+                assert path.exists(), path
+                return json.loads(path.read_text(encoding='utf-8'))
+
+            phase3 = read_json('phase3_dataset_audit.json')
+            phase4 = read_json('phase4_transfer_ctc_audit.json')
+            phase5 = read_json('phase5_results.json')
+            phase6 = read_json('phase6_robustness_results.json')
+            phase7 = read_json('decoder_results_v1.json')
+            decoder_predictions = read_json('decoder_predictions_v1.json')
+
+            CHECKPOINT_SHA256 = phase5['best_checkpoint_sha256']
+            assert phase4['num_classes'] == 29
+            assert phase6['checkpoint_sha256'] == CHECKPOINT_SHA256
+            assert phase7['checkpoint_sha256'] == CHECKPOINT_SHA256
+            assert decoder_predictions['checkpoint_sha256'] == CHECKPOINT_SHA256
+            assert phase7['lm']['training_split'] == 'train_only'
+            assert phase7['lm']['training_sequences'] == phase3['samples_by_split']['train']
+            assert len(decoder_predictions['references']) == phase5['test_samples'] == 540
+            assert all(
+                len(values) == 540
+                for values in decoder_predictions['predictions'].values()
+            )
+            print('PASS: artefakti Faza 3–7 su kompletni i koriste isti checkpoint.')
+            """),
+            md("### 3. Prikaži speaker-disjoint podelu"),
+            code("""
+            split_order = ('train', 'validation', 'test')
+            split_labels = ('Train', 'Validation', 'Test')
+            split_values = [phase3['samples_by_split'][name] for name in split_order]
+
+            figure, axis = plt.subplots(figsize=(8, 4.5))
+            bars = axis.bar(split_labels, split_values, color=COLORS['blue'], edgecolor=COLORS['ink'])
+            axis.set_title('Speaker-disjoint podela AI-SPEAK skupa', loc='left', weight='bold')
+            axis.text(0, 1.01, 'Broj primera po skupu; govornici se ne preklapaju',
+                      transform=axis.transAxes, color='#5B6B78')
+            axis.set_ylabel('Broj primera')
+            axis.set_ylim(0, max(split_values) * 1.18)
+            axis.grid(axis='y', color=COLORS['grid'], alpha=0.7)
+            axis.spines[['top', 'right']].set_visible(False)
+            axis.bar_label(bars, labels=[f'{value:,}'.replace(',', '.') for value in split_values],
+                           padding=4, weight='bold')
+            finish_figure(figure, '01_dataset_split.png')
+            """),
+            md("""
+            ## Obavezna GPU demonstracija
+
+            ### 4. Učitaj zamrznute frejmove i anotacije
+
+            Raspakuju se samo postojeći artefakti. Detekcija lica i preprocessing se
+            ne pokreću ponovo.
+            """),
+            code("""
+            MOUTH_ARCHIVE = DRIVE_ROOT / 'ai_speak_lip.zip'
+            SOURCE_ARCHIVE = Path('/content/drive/MyDrive/processed.zip')
+            MOUTH_ROOT = Path('/content/ai_speak_lip')
+            ALIGN_EXTRACT = Path('/content/ai_speak_align')
+            assert MOUTH_ARCHIVE.exists(), MOUTH_ARCHIVE
+            assert SOURCE_ARCHIVE.exists(), SOURCE_ARCHIVE
+
+            if not next(MOUTH_ROOT.glob('spk*/video/video_a/*'), None):
+                MOUTH_ROOT.mkdir(parents=True, exist_ok=True)
+                with zipfile.ZipFile(MOUTH_ARCHIVE) as archive:
+                    archive.extractall(MOUTH_ROOT)
+            if not next(ALIGN_EXTRACT.rglob('spk*/alignment/*.align'), None):
+                ALIGN_EXTRACT.mkdir(parents=True, exist_ok=True)
+                with zipfile.ZipFile(SOURCE_ARCHIVE) as archive:
+                    members = [
+                        member for member in archive.infolist()
+                        if '/alignment/' in f'/{member.filename}'
+                        and member.filename.endswith('.align')
+                    ]
+                    archive.extractall(ALIGN_EXTRACT, members=members)
+            CORPUS_ROOT = next(ALIGN_EXTRACT.rglob('spk*/alignment/*.align')).parents[2]
+            print('Mouth frejmovi:', MOUTH_ROOT)
+            print('Anotacije:', CORPUS_ROOT)
+            """),
+            code("""
+            from data.splits import SPLITS
+            from lipnet.dataset import SERBIAN_LETTERS, SerbianDataset, variable_length_collate
+            from lipnet.train import scan_ctc_compatibility
+
+            raw_datasets = {
+                name: SerbianDataset(MOUTH_ROOT, CORPUS_ROOT, speakers, phase='test')
+                for name, speakers in SPLITS.items()
+            }
+            reports = {
+                name: scan_ctc_compatibility(dataset)
+                for name, dataset in raw_datasets.items()
+            }
+            for name in ('train', 'validation', 'test'):
+                assert reports[name].invalid_count == 0
+                assert len(reports[name].valid_indices) == phase3['samples_by_split'][name]
+                print(name, 'valid=', len(reports[name].valid_indices))
+            """),
+            md("### 5. Učitaj checkpoint, fituj train-only LM i dekodiraj primer 42"),
+            code("""
+            from lipnet.decoder import BeamSearchConfig, CharacterNGramLM, prefix_beam_decode
+            from lipnet.model import LipNet
+            from lipnet.train import greedy_decode
+
+            PHASE5_DIR = DRIVE_ROOT / 'phase5_length_aware_v2'
+            BEST_CHECKPOINT = PHASE5_DIR / 'best.pt'
+            assert BEST_CHECKPOINT.exists(), BEST_CHECKPOINT
+
+            hasher = hashlib.sha256()
+            with BEST_CHECKPOINT.open('rb') as handle:
+                for chunk in iter(lambda: handle.read(1024 * 1024), b''):
+                    hasher.update(chunk)
+            assert hasher.hexdigest() == CHECKPOINT_SHA256
+
+            checkpoint = torch.load(BEST_CHECKPOINT, map_location='cpu', weights_only=False)
+            assert checkpoint['metadata']['training_protocol'] == 'length-aware-bigru-corpus-metrics-v2'
+            model = LipNet(num_classes=1 + len(SERBIAN_LETTERS)).to(DEVICE)
+            model.load_state_dict(checkpoint['model_state_dict'], strict=True)
+            model.eval()
+
+            train_token_sequences = [
+                raw_datasets['train'].ctc_lengths(index)[1].tolist()
+                for index in reports['train'].valid_indices
+            ]
+            language_model = CharacterNGramLM(
+                order=phase7['lm']['order'],
+                smoothing=phase7['lm']['smoothing'],
+                vocabulary=range(1, 1 + len(SERBIAN_LETTERS)),
+            ).fit(train_token_sequences)
+            assert language_model.training_sequences == 2877
+
+            DEMO_INDEX = 42
+            raw_index = reports['test'].valid_indices[DEMO_INDEX]
+            sample = raw_datasets['test'][raw_index]
+            batch = variable_length_collate([sample])
+            with torch.inference_mode():
+                logits = model(batch['vid'].to(DEVICE), batch['vid_len'])
+
+            reference = SerbianDataset.arr2txt(sample['txt'].tolist())
+            greedy_prediction = greedy_decode(logits, output_lengths=batch['vid_len'])[0]
+            lm_config = phase7['selected_test_runs']['beam_w50_lm_a1.0_b0.5']['config']
+            lm_prediction = prefix_beam_decode(
+                logits,
+                config=BeamSearchConfig(**lm_config),
+                language_model=language_model,
+                output_lengths=batch['vid_len'],
+            )[0]
+
+            assert reference == decoder_predictions['references'][DEMO_INDEX]
+            assert greedy_prediction == decoder_predictions['predictions']['greedy'][DEMO_INDEX]
+            assert lm_prediction == decoder_predictions['predictions']['beam_w50_lm_a1.0_b0.5'][DEMO_INDEX]
+            assert lm_prediction == reference
+            print('Referenca:', reference)
+            print('Greedy:   ', greedy_prediction)
+            print('Beam + LM:', lm_prediction)
+            """),
+            code("""
+            frame_count = int(sample['vid_len'])
+            frame_indices = np.linspace(0, frame_count - 1, 6, dtype=int)
+            figure, axes = plt.subplots(1, len(frame_indices), figsize=(14, 2.8))
+            for axis, frame_index in zip(axes, frame_indices):
+                frame = sample['vid'][:, frame_index].permute(1, 2, 0).numpy()[..., ::-1]
+                axis.imshow(np.clip(frame, 0, 1))
+                axis.set_title(f'frejm {frame_index}')
+                axis.axis('off')
+            figure.suptitle('Mouth ROI kroz demonstracionu sekvencu', x=0.01, ha='left', weight='bold')
+            figure.text(0.01, 0.01, f'Referenca: {reference}', color='#5B6B78')
+            finish_figure(figure, '02_gpu_demo_mouth_frames.png')
+            """),
+            md("## Rezultati\n\n### 6. Robustnost ulaza"),
+            code("""
+            condition_order = (
+                'baseline_128x64', 'resolution_96x48', 'resolution_64x32',
+                'gaussian_blur_5_sigma1', 'crop_shift_dx4_dy2',
+            )
+            condition_labels = ('Baseline 128×64', '96×48', '64×32', 'Gaussian blur', 'Crop shift')
+            wer_values = [phase6['conditions'][name]['wer'] for name in condition_order]
+            cer_values = [phase6['conditions'][name]['cer'] for name in condition_order]
+            positions = np.arange(len(condition_order))
+            width = 0.36
+
+            figure, axis = plt.subplots(figsize=(10, 5.2))
+            wer_bars = axis.bar(positions - width / 2, wer_values, width, label='WER',
+                                color=COLORS['blue'], edgecolor=COLORS['ink'])
+            cer_bars = axis.bar(positions + width / 2, cer_values, width, label='CER',
+                                color=COLORS['orange'], edgecolor=COLORS['ink'])
+            axis.set_title('Robustnost modela na promene ulaza', loc='left', weight='bold')
+            axis.text(0, 1.01, 'Corpus-level metrike nad istih 540 test primera',
+                      transform=axis.transAxes, color='#5B6B78')
+            axis.set_xticks(positions, condition_labels)
+            axis.set_ylim(0, 0.52)
+            axis.yaxis.set_major_formatter(PercentFormatter(1.0))
+            axis.grid(axis='y', color=COLORS['grid'], alpha=0.7)
+            axis.spines[['top', 'right']].set_visible(False)
+            axis.legend(frameon=False, ncol=2)
+            axis.bar_label(wer_bars, labels=[f'{value:.1%}' for value in wer_values], padding=3, fontsize=9)
+            axis.bar_label(cer_bars, labels=[f'{value:.1%}' for value in cer_values], padding=3, fontsize=9)
+            finish_figure(figure, '03_robustness.png')
+            """),
+            md("### 7. Greedy, beam i beam+LM dekodiranje"),
+            code("""
+            decoder_order = ('greedy', 'beam_w50_nolm', 'beam_w50_lm_a1.0_b0.5')
+            decoder_labels = ('Greedy', 'Beam bez LM-a', 'Beam + 5-gram LM')
+            selected_runs = phase7['selected_test_runs']
+            decoder_wer = [selected_runs[name]['metrics']['wer'] for name in decoder_order]
+            decoder_cer = [selected_runs[name]['metrics']['cer'] for name in decoder_order]
+
+            figure, axes = plt.subplots(1, 2, figsize=(14, 5.2), gridspec_kw={'width_ratios': [1.05, 1]})
+            positions = np.arange(len(decoder_order))
+            width = 0.36
+            wer_bars = axes[0].bar(positions - width / 2, decoder_wer, width, label='WER',
+                                   color=COLORS['blue'], edgecolor=COLORS['ink'])
+            cer_bars = axes[0].bar(positions + width / 2, decoder_cer, width, label='CER',
+                                   color=COLORS['orange'], edgecolor=COLORS['ink'])
+            axes[0].set_title('Apsolutne test metrike', loc='left', weight='bold')
+            axes[0].set_xticks(positions, decoder_labels)
+            axes[0].set_ylim(0, 0.52)
+            axes[0].yaxis.set_major_formatter(PercentFormatter(1.0))
+            axes[0].grid(axis='y', color=COLORS['grid'], alpha=0.7)
+            axes[0].spines[['top', 'right']].set_visible(False)
+            axes[0].legend(frameon=False, ncol=2)
+            axes[0].bar_label(wer_bars, labels=[f'{value:.1%}' for value in decoder_wer], padding=3, fontsize=9)
+            axes[0].bar_label(cer_bars, labels=[f'{value:.1%}' for value in decoder_cer], padding=3, fontsize=9)
+
+            comparison_specs = (
+                ('beam_w50_nolm', 'wer', 'Beam bez LM-a — WER'),
+                ('beam_w50_nolm', 'cer', 'Beam bez LM-a — CER'),
+                ('beam_w50_lm_a1.0_b0.5', 'wer', 'Beam + LM — WER'),
+                ('beam_w50_lm_a1.0_b0.5', 'cer', 'Beam + LM — CER'),
+            )
+            delta_values, delta_low, delta_high, delta_labels = [], [], [], []
+            for comparison_name, metric, label in comparison_specs:
+                bootstrap = phase7['comparisons'][comparison_name]['paired_bootstrap_vs_greedy']
+                value = 100 * bootstrap[f'{metric}_delta']
+                low = 100 * bootstrap[f'{metric}_delta_ci_low']
+                high = 100 * bootstrap[f'{metric}_delta_ci_high']
+                delta_values.append(value)
+                delta_low.append(value - low)
+                delta_high.append(high - value)
+                delta_labels.append(label)
+            y_positions = np.arange(len(delta_labels))
+            axes[1].errorbar(
+                delta_values, y_positions, xerr=[delta_low, delta_high], fmt='o',
+                color=COLORS['pink'], ecolor=COLORS['ink'], capsize=4, markersize=7,
+            )
+            axes[1].axvline(0, color=COLORS['ink'], linewidth=1)
+            axes[1].set_yticks(y_positions, delta_labels)
+            axes[1].invert_yaxis()
+            axes[1].set_xlabel('Promena prema greedy baseline-u (procentni poeni)')
+            axes[1].set_title('Paired bootstrap, 95% interval', loc='left', weight='bold')
+            axes[1].grid(axis='x', color=COLORS['grid'], alpha=0.7)
+            axes[1].spines[['top', 'right']].set_visible(False)
+            for value, y_position in zip(delta_values, y_positions):
+                axes[1].text(value, y_position - 0.18, f'{value:+.2f} p.p.', ha='center', fontsize=9)
+
+            figure.suptitle('Uticaj CTC dekodera na test rezultat', x=0.01, ha='left', weight='bold')
+            figure.text(0.01, 0.01, 'N = 540; negativna delta označava poboljšanje WER-a/CER-a',
+                        color='#5B6B78')
+            figure.tight_layout(rect=(0, 0.05, 1, 0.94))
+            finish_figure(figure, '04_decoder_comparison.png')
+            """),
+            md("## Analiza grešaka\n\n### 8. Uporedi tačnost po šest pozicija rečenice"),
+            code("""
+            from lipnet.evaluation import slot_confusion_analysis, slot_error_analysis
+
+            SLOT_NAMES = ('komanda', 'slovo_1', 'smer', 'slovo_2', 'dan', 'broj')
+            references = decoder_predictions['references']
+            predictions_by_decoder = decoder_predictions['predictions']
+            slot_analyses = {
+                name: slot_error_analysis(predictions_by_decoder[name], references, slot_names=SLOT_NAMES)
+                for name in decoder_order
+            }
+
+            figure, axis = plt.subplots(figsize=(11, 5.5))
+            positions = np.arange(len(SLOT_NAMES))
+            width = 0.25
+            for offset, name, label, color in zip(
+                (-width, 0, width), decoder_order, decoder_labels,
+                (COLORS['blue'], COLORS['gold'], COLORS['pink']),
+            ):
+                values = [slot_analyses[name]['slots'][slot]['accuracy'] for slot in SLOT_NAMES]
+                axis.bar(positions + offset, values, width, label=label, color=color, edgecolor=COLORS['ink'])
+            axis.set_title('Tačnost dekodera po poziciji AI-SPEAK rečenice', loc='left', weight='bold')
+            axis.text(0, 1.01, 'Poravnata tačnost nad 540 test primera',
+                      transform=axis.transAxes, color='#5B6B78')
+            axis.set_xticks(positions, ('Komanda', 'Slovo 1', 'Smer', 'Slovo 2', 'Dan', 'Broj'))
+            axis.set_ylim(0, 1.0)
+            axis.yaxis.set_major_formatter(PercentFormatter(1.0))
+            axis.grid(axis='y', color=COLORS['grid'], alpha=0.7)
+            axis.spines[['top', 'right']].set_visible(False)
+            axis.legend(frameon=False, ncol=3, loc='upper center')
+            finish_figure(figure, '05_slot_accuracy.png')
+            """),
+            md("### 9. Matrice konfuzije finalnog beam+LM dekodera"),
+            code("""
+            reference_tokens = [text.split() for text in references]
+            slot_vocabularies = {
+                'komanda': ('obriši', 'dalje', 'kraj', 'pošalji', 'odustani', 'početak', 'potvrdi'),
+                'slovo_1': tuple(sorted({tokens[1] for tokens in reference_tokens})),
+                'smer': ('levo', 'desno', 'gore', 'dole', 'napred', 'nazad'),
+                'slovo_2': tuple(sorted({tokens[3] for tokens in reference_tokens})),
+                'dan': ('ponedeljak', 'utorak', 'sreda', 'četvrtak', 'petak', 'subota', 'nedelja'),
+                'broj': ('nula', 'jedan', 'dva', 'tri', 'četiri', 'pet', 'šest', 'sedam', 'osam', 'devet'),
+            }
+            final_predictions = predictions_by_decoder['beam_w50_lm_a1.0_b0.5']
+            final_confusions = slot_confusion_analysis(
+                final_predictions,
+                references,
+                slot_names=SLOT_NAMES,
+                vocabularies=slot_vocabularies,
+                other_label='ostalo',
+                deletion_label='brisanje',
+            )
+            assert final_confusions['eligible_samples'] == 540
+
+            selected_slots = ('komanda', 'smer', 'dan', 'broj')
+            figure, axes = plt.subplots(2, 2, figsize=(17, 13))
+            for axis, slot_name in zip(axes.flat, selected_slots):
+                payload = final_confusions['slots'][slot_name]
+                matrix = np.asarray(payload['row_normalized'])
+                image = axis.imshow(matrix, cmap='Blues', vmin=0, vmax=1, aspect='auto')
+                axis.set_title(slot_name.capitalize(), loc='left', weight='bold')
+                axis.set_xticks(range(len(payload['prediction_labels'])), payload['prediction_labels'], rotation=45, ha='right')
+                axis.set_yticks(range(len(payload['reference_labels'])), payload['reference_labels'])
+                axis.set_xlabel('Predikcija')
+                axis.set_ylabel('Referenca')
+                for row in range(matrix.shape[0]):
+                    for column in range(matrix.shape[1]):
+                        value = matrix[row, column]
+                        if value >= 0.01:
+                            axis.text(column, row, f'{value:.0%}', ha='center', va='center',
+                                      fontsize=8, color='white' if value > 0.55 else COLORS['ink'])
+            colorbar = figure.colorbar(image, ax=axes.ravel().tolist(), shrink=0.72)
+            colorbar.ax.yaxis.set_major_formatter(PercentFormatter(1.0))
+            figure.suptitle('Matrice konfuzije po semantičkim pozicijama — beam + 5-gram LM',
+                            x=0.04, ha='left', weight='bold')
+            figure.text(0.04, 0.01, 'Redovi su normalizovani; „ostalo” su reči van očekivanog slota.',
+                        color='#5B6B78')
+            figure.subplots_adjust(top=0.92, bottom=0.12, hspace=0.42, wspace=0.28)
+            finish_figure(figure, '06_slot_confusion_matrices.png')
+            """),
+            md("### 10. Najčešće zamene slova"),
+            code("""
+            figure, axes = plt.subplots(1, 2, figsize=(15, 6))
+            for axis, slot_name, title in zip(
+                axes, ('slovo_1', 'slovo_2'), ('Prvo slovo', 'Drugo slovo'),
+            ):
+                substitutions = final_confusions['slots'][slot_name]['substitution_pairs'][:10]
+                labels = [f"{item['reference']} → {item['prediction']}" for item in substitutions][::-1]
+                values = [item['count'] for item in substitutions][::-1]
+                bars = axis.barh(labels, values, color=COLORS['orange'], edgecolor=COLORS['ink'])
+                axis.set_title(title, loc='left', weight='bold')
+                axis.set_xlabel('Broj poravnatih zamena')
+                axis.grid(axis='x', color=COLORS['grid'], alpha=0.7)
+                axis.spines[['top', 'right']].set_visible(False)
+                axis.bar_label(bars, padding=3)
+            figure.suptitle('Najčešće zamene slova — finalni beam+LM decoder',
+                            x=0.01, ha='left', weight='bold')
+            figure.tight_layout(rect=(0, 0, 1, 0.94))
+            finish_figure(figure, '07_letter_substitutions.png')
+            """),
+            md("### 11. Kvalitativna poboljšanja i regresije"),
+            code("""
+            greedy_predictions = predictions_by_decoder['greedy']
+            lm_predictions = predictions_by_decoder['beam_w50_lm_a1.0_b0.5']
+            qualitative_rows = []
+            for index, (reference, greedy, lm) in enumerate(
+                zip(references, greedy_predictions, lm_predictions)
+            ):
+                greedy_errors = editdistance.eval(greedy.split(), reference.split())
+                lm_errors = editdistance.eval(lm.split(), reference.split())
+                qualitative_rows.append({
+                    'indeks': index,
+                    'promena_broja_gresaka': greedy_errors - lm_errors,
+                    'referenca': reference,
+                    'greedy': greedy,
+                    'beam_5gram': lm,
+                })
+            improvements = sorted(
+                (row for row in qualitative_rows if row['promena_broja_gresaka'] > 0),
+                key=lambda row: (-row['promena_broja_gresaka'], row['indeks']),
+            )[:3]
+            regressions = sorted(
+                (row for row in qualitative_rows if row['promena_broja_gresaka'] < 0),
+                key=lambda row: (row['promena_broja_gresaka'], row['indeks']),
+            )[:3]
+            examples = pd.DataFrame(improvements + regressions)
+            display(examples.style.hide(axis='index'))
+            print('Pozitivna promena znači manje word-edit grešaka sa beam+LM dekoderom.')
+            """),
+            md("## Provere\n\n### 12. Potvrdi glavne tvrdnje i sve izlazne figure"),
+            code("""
+            final_metrics = phase7['selected_test_runs']['beam_w50_lm_a1.0_b0.5']['metrics']
+            final_bootstrap = phase7['comparisons']['beam_w50_lm_a1.0_b0.5']['paired_bootstrap_vs_greedy']
+            assert math.isclose(final_metrics['wer'], 0.41203703703703703, abs_tol=1e-12)
+            assert math.isclose(final_metrics['cer'], 0.14696873005743458, abs_tol=1e-12)
+            assert final_bootstrap['wer_delta_ci_high'] < 0
+            assert final_bootstrap['cer_delta_ci_high'] < 0
+
+            expected_figures = (
+                '01_dataset_split.png',
+                '02_gpu_demo_mouth_frames.png',
+                '03_robustness.png',
+                '04_decoder_comparison.png',
+                '05_slot_accuracy.png',
+                '06_slot_confusion_matrices.png',
+                '07_letter_substitutions.png',
+            )
+            missing_figures = [name for name in expected_figures if not (REPORT_DIR / name).exists()]
+            assert not missing_figures, missing_figures
+            print('PASS: checkpoint, GPU demo, metrike, intervali i figure su potvrđeni.')
+            """),
+            md("""
+            ## Zaključci
+
+            - Length-aware LipNet baseline ostvaruje test WER 45,25% i CER 18,24%.
+            - Ulazne perturbacije menjaju WER za najviše 0,71 procentni poen.
+            - Validation-izabrani beam+5-gram decoder spušta WER na 41,20% i CER
+              na 14,70% bez promene ili retreninga vizuelnog modela.
+            - Paired bootstrap intervali za WER i CER ne obuhvataju nulu.
+            - Semantički slotovi su znatno pouzdaniji od dve izolovane pozicije slova.
+
+            Eksperimentalni deo projekta je završen. Sledeći i poslednji korak je
+            pisanje finalnog izveštaja korišćenjem potvrđenih tabela i figura iz ovog
+            notebooka.
+            """),
+        ],
+        gpu=True,
+    )
+
+
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument(
+        "--phase",
+        action="append",
+        type=int,
+        choices=range(9),
+        help="Generiši samo izabranu fazu; opcija može da se ponovi.",
+    )
+    return parser.parse_args()
+
+
 def main() -> None:
     OUTPUT.mkdir(parents=True, exist_ok=True)
     notebooks = {
-        "00_faza_0_upstream_restart.ipynb": phase0(),
-        "01_faza_1_grid_parity.ipynb": phase1(),
-        "02_faza_2_ai_speak_preprocessing.ipynb": phase2(),
-        "03_faza_3_serbian_dataset.ipynb": phase3(),
-        "04_faza_4_transfer_ctc_smoke.ipynb": phase4(),
-        "05_faza_5_baseline_finetuning.ipynb": phase5(),
-        "06_faza_6_robustness_experiments.ipynb": phase6(),
-        "07_faza_7_decoder_search.ipynb": phase7(),
+        0: ("00_faza_0_upstream_restart.ipynb", phase0),
+        1: ("01_faza_1_grid_parity.ipynb", phase1),
+        2: ("02_faza_2_ai_speak_preprocessing.ipynb", phase2),
+        3: ("03_faza_3_serbian_dataset.ipynb", phase3),
+        4: ("04_faza_4_transfer_ctc_smoke.ipynb", phase4),
+        5: ("05_faza_5_baseline_finetuning.ipynb", phase5),
+        6: ("06_faza_6_robustness_experiments.ipynb", phase6),
+        7: ("07_faza_7_decoder_search.ipynb", phase7),
+        8: ("08_faza_8_konsolidovani_notebook.ipynb", phase8),
     }
-    for name, value in notebooks.items():
+    requested = parse_args().phase
+    phases = sorted(set(requested)) if requested else list(notebooks)
+    for phase in phases:
+        name, builder = notebooks[phase]
+        value = builder()
+        nbf.validate(value)
         nbf.write(value, OUTPUT / name)
         print(OUTPUT / name)
 

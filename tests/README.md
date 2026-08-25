@@ -22,9 +22,9 @@ uv run pytest tests/test_decoder.py -q
 | Fajl | Šta proverava |
 |---|---|
 | [`test_vipl_phases.py`](test_vipl_phases.py) | speaker split, srpski vokabular, alignment parser, variable-length batch i transfer težina |
-| [`test_phase5.py`](test_phase5.py) | CTC trening, corpus metrike, checkpoint resume i usklađenost notebookova sa generatorom |
+| [`test_phase5.py`](test_phase5.py) | CTC trening, corpus metrike i checkpoint resume |
 | [`test_decoder.py`](test_decoder.py) | egzaktno CTC prefix beam dekodiranje i karakterni jezički model |
-| [`test_evaluation.py`](test_evaluation.py) | paired bootstrap i strukturisana analiza grešaka |
+| [`test_evaluation.py`](test_evaluation.py) | paired bootstrap, strukturisana analiza grešaka i slot-konfuzije sa brisanjima/`ostalo` |
 
 Testovi namerno koriste male sintetičke ulaze. GPU validacija kompletnog modela
 i numerički rezultati eksperimenata dokumentovani su u

@@ -8,7 +8,7 @@ reproduktivne notebookove sa modulima iz paketa `lipnet`.
 | Fajl | Namena |
 |---|---|
 | [`prepare_ai_speak.py`](prepare_ai_speak.py) | pretvara AI-SPEAK MP4 snimke u VIPL-kompatibilne foldere mouth frejmova |
-| [`build_phase_notebooks.py`](build_phase_notebooks.py) | generiše svih osam Colab notebookova u folderu `playground` |
+| [`build_phase_notebooks.py`](build_phase_notebooks.py) | generiše devet Colab notebookova, Faze 0–8, u folderu `playground` |
 | [`__init__.py`](__init__.py) | omogućava pokretanje skripti kao Python modula |
 
 ## Preprocessing
@@ -28,6 +28,13 @@ QA, kako bi se neispravni regioni usana uočili pre treninga.
 
 ```powershell
 uv run python scripts/build_phase_notebooks.py
+```
+
+Za generisanje samo završnog notebooka, bez prepisivanja izvršenih notebookova
+00–07:
+
+```powershell
+uv run python scripts/build_phase_notebooks.py --phase 8
 ```
 
 Generator je jedini izvor ćelija notebookova. Posle njegove izmene potrebno je

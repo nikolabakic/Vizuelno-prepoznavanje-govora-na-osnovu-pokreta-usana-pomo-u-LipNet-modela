@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections import Counter, defaultdict
+from collections.abc import Mapping, Sequence
 from typing import Any
 
 import editdistance
@@ -203,5 +204,130 @@ def slot_error_analysis(
         "eligible_samples": eligible_samples,
         "skipped_samples": sample_count - eligible_samples,
         "insertions": insertions,
+        "slots": slots,
+    }
+
+
+def slot_confusion_analysis(
+    predictions: Sequence[str],
+    references: Sequence[str],
+    *,
+    slot_names: Sequence[str],
+    vocabularies: Mapping[str, Sequence[str]] | None = None,
+    other_label: str = "ostalo",
+    deletion_label: str = "brisanje",
+) -> dict[str, Any]:
+    """Build aligned, report-ready confusion counts for fixed sentence slots.
+
+    Rows follow each slot's reference vocabulary. Prediction columns add
+    ``other_label`` for out-of-vocabulary words and ``deletion_label`` for an
+    aligned deletion. Raw substitution pairs are retained for focused error
+    tables such as the two AI-SPEAK letter positions.
+    """
+    sample_count = _validate_parallel_texts(predictions, references)
+    names = tuple(slot_names)
+    if not names:
+        raise ValueError("Potreban je najmanje jedan naziv pozicije")
+    if other_label == deletion_label:
+        raise ValueError("Oznake za ostalo i brisanje moraju biti različite")
+
+    eligible_references = [
+        reference.split()
+        for reference in references
+        if len(reference.split()) == len(names)
+    ]
+    derived_vocabularies = {
+        name: tuple(dict.fromkeys(tokens[index] for tokens in eligible_references))
+        for index, name in enumerate(names)
+    }
+    resolved_vocabularies: dict[str, tuple[str, ...]] = {}
+    for name in names:
+        supplied = None if vocabularies is None else vocabularies.get(name)
+        labels = tuple(supplied) if supplied is not None else derived_vocabularies[name]
+        if not labels or len(labels) != len(set(labels)):
+            raise ValueError(f"Vokabular za slot {name!r} mora biti neprazan i jedinstven")
+        if other_label in labels or deletion_label in labels:
+            raise ValueError(f"Rezervisane oznake se pojavljuju u vokabularu slota {name!r}")
+        resolved_vocabularies[name] = labels
+
+    counts = {
+        name: {
+            reference: Counter()
+            for reference in resolved_vocabularies[name]
+        }
+        for name in names
+    }
+    raw_substitutions: dict[str, Counter[tuple[str, str]]] = defaultdict(Counter)
+    eligible_samples = 0
+    insertions = 0
+    for prediction, reference in zip(predictions, references):
+        reference_tokens = reference.split()
+        if len(reference_tokens) != len(names):
+            continue
+        eligible_samples += 1
+        reference_index = 0
+        for reference_token, prediction_token in _align_words(
+            reference_tokens, prediction.split()
+        ):
+            if reference_token is None:
+                insertions += 1
+                continue
+            slot_name = names[reference_index]
+            slot_vocabulary = resolved_vocabularies[slot_name]
+            if reference_token not in counts[slot_name]:
+                raise ValueError(
+                    f"Referentna vrednost {reference_token!r} nije u vokabularu slota {slot_name!r}"
+                )
+            if prediction_token is None:
+                prediction_label = deletion_label
+            elif prediction_token in slot_vocabulary:
+                prediction_label = prediction_token
+            else:
+                prediction_label = other_label
+            counts[slot_name][reference_token][prediction_label] += 1
+            if prediction_token is not None and prediction_token != reference_token:
+                raw_substitutions[slot_name][(reference_token, prediction_token)] += 1
+            reference_index += 1
+
+    slots: dict[str, Any] = {}
+    for name in names:
+        reference_labels = resolved_vocabularies[name]
+        prediction_labels = reference_labels + (other_label, deletion_label)
+        matrix = np.asarray(
+            [
+                [counts[name][reference][prediction] for prediction in prediction_labels]
+                for reference in reference_labels
+            ],
+            dtype=np.int64,
+        )
+        denominators = matrix.sum(axis=1, keepdims=True)
+        normalized = np.divide(
+            matrix,
+            denominators,
+            out=np.zeros_like(matrix, dtype=np.float64),
+            where=denominators != 0,
+        )
+        substitutions = [
+            {"reference": reference, "prediction": prediction, "count": count}
+            for (reference, prediction), count in sorted(
+                raw_substitutions[name].items(),
+                key=lambda item: (-item[1], item[0][0], item[0][1]),
+            )
+        ]
+        slots[name] = {
+            "reference_labels": list(reference_labels),
+            "prediction_labels": list(prediction_labels),
+            "counts": matrix.tolist(),
+            "row_normalized": normalized.tolist(),
+            "substitution_pairs": substitutions,
+        }
+
+    return {
+        "samples": sample_count,
+        "eligible_samples": eligible_samples,
+        "skipped_samples": sample_count - eligible_samples,
+        "insertions": insertions,
+        "other_label": other_label,
+        "deletion_label": deletion_label,
         "slots": slots,
     }

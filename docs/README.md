@@ -8,7 +8,7 @@ kojima se zasniva finalni rad.
 | Dokument | Opis |
 |---|---|
 | [`analiza-i-roadmap.md`](analiza-i-roadmap.md) | metodologija, faze eksperimenta i kriterijumi završetka |
-| [`provera-rezultata.md`](provera-rezultata.md) | provera izvršenih notebookova, metrika i checkpoint-a |
+| [`provera-rezultata.md`](provera-rezultata.md) | audit rezultata i status završne Colab provere notebooka 08 |
 | [`upstream-diff.md`](upstream-diff.md) | poreklo koda i dokumentovana prilagođavanja VIPL LipNet-a |
 | [`results/`](results/README.md) | sanitizovani JSON auditi i finalne numeričke metrike |
 

@@ -1,4 +1,4 @@
-# Provera rezultata notebookova 02–06
+# Provera rezultata notebookova 02–08
 
 Datum prvog audita: 24. avgust 2026.
 
@@ -6,10 +6,10 @@ Datum završne revalidacije: 25. avgust 2026.
 
 ## Zaključak
 
-**Opšta ocena: length-aware rezultati Faza 4–6 su potvrđeni; Faza 7 čeka Colab run.**
+**Opšta ocena: rezultati Faza 03–07 su potvrđeni i spremni za finalni izveštaj.**
 
 Prvi audit je otkrio da stari Phase 5 run nije bezbedan za citiranje. Nakon toga
-su model, metrike, checkpoint tok i notebookovi ispravljeni i Faze 4–6 ponovo
+su model, metrike, checkpoint tok i notebookovi ispravljeni, a Faze 04–07
 izvršene na NVIDIA L4. Novi rezultati koriste checkpoint SHA-256
 `203c2707b5c327c8b164ab573f5550390def3aacf0ff190fc9bd760745e2f9c8` i
 `corpus-edit-distance-v1` definiciju metrika. Sanitizovane kopije iz Drive-a su:
@@ -17,15 +17,17 @@ izvršene na NVIDIA L4. Novi rezultati koriste checkpoint SHA-256
 - [Phase 3 Dataset audit](results/phase3_dataset_audit.json);
 - [Phase 4 transfer/CTC audit](results/phase4_transfer_ctc_audit.json);
 - [Phase 5 rezultat](results/phase5_results.json);
-- [Phase 6 robustnost](results/phase6_robustness_results.json).
+- [Phase 6 robustnost](results/phase6_robustness_results.json);
+- [Phase 7 decoder rezultat](results/decoder_results_v1.json);
+- [Phase 7 test reference i predikcije](results/decoder_predictions_v1.json).
 
 Stari brojevi u nastavku ostaju samo kao istorija razloga za revalidaciju.
 
 ## Kontrolni izvori
 
-- kod i izlazi sačuvani u notebookovima 02–05 pre ovog audita;
+- kod i izlazi sačuvani u izvršenim notebookovima 02–07;
 - checkpoint/rezultat putanje prikazane u tim notebookovima na Google Drive-u;
-- lokalni testovi nad `lipnet/`, `scripts/` i generatorom notebookova;
+- lokalni testovi nad modelom, Dataset-om, treningom, dekoderom i evaluacijom;
 - pinovani VIPL commit
   `40209e09c49553c00c25c7d41faa3706aea3c625`.
 
@@ -169,21 +171,61 @@ checkpoint-om, splitom i dekoderom izmerila:
 | Gaussian blur, 5×5, σ=1 | 0.459568 | 0.187301 | +0.007099 |
 | crop shift dx=4, dy=2 | 0.453395 | 0.183408 | +0.000926 |
 
-Sve observed razlike su male; bez paired intervala ne tumače se kao dokaz
-statistički značajne razlike. Faza 7 zato uključuje paired bootstrap za decoder
-poređenja.
+Sve uočene razlike su male; pošto za perturbacije nisu računati paired
+intervali, ne tumače se kao dokaz statistički značajne razlike. Paired
+bootstrap je primenjen zasebno u Fazi 7 za poređenje dekodera.
 
 **Status:** potvrđeno; kompletan payload je u
 [Phase 6 JSON-u](results/phase6_robustness_results.json).
 
-## Preostali redosled do izveštaja
+## Notebook 07 — CTC decoder i jezički model
 
-1. Ne pokretati Fazu 2; koristiti postojeći `ai_speak_lip.zip`.
-2. Pokrenuti Fazu 7. Ona jednom kešira validation/test logit-e, zatim poredi
-   greedy, CTC prefix beam bez LM-a i beam sa train-only karakternim 5-gram LM-om.
-3. Prihvatiti Fazu 7 samo ako greedy test tačno reprodukuje Phase 5 rezultat,
-   LM navodi `training_split=train_only`, a test koristi validation-izabrane
-   konfiguracije.
-4. Preneti `decoder_results_v1.json` u `docs/results/` i tek zatim pripremiti
-   konsolidovani notebook za odbranu.
-5. Finalni izveštaj ostaje za posebno dogovoreni način rada.
+Faza 7 koristi isti Phase 5 checkpoint i keširane validation/test logit-e, bez
+novog treninga ili preprocessinga. Greedy kontrola je egzaktno reprodukovala
+Phase 5 test metrike. Karakterni backoff 5-gram LM fitovan je isključivo nad
+2.877 train transkripata.
+
+Validation izbor je zaključao beam width 50 bez LM-a i beam width 50 sa
+`alpha=1,0`, `word_bonus=0,5` i top-8 token pruning-om. Probe nad 25 uzoraka dao
+je potpuno slaganje top-8 i full-alphabet beam predikcija.
+
+| Test dekoder | WER | CER | Exact match |
+|---|---:|---:|---:|
+| greedy | 0,452469 | 0,182387 | 0,000000 |
+| beam width 50, bez LM-a | 0,448765 | 0,181047 | 0,000000 |
+| beam width 50 + 5-gram LM | **0,412037** | **0,146969** | **0,003704** |
+
+Za beam+LM u odnosu na greedy, paired bootstrap sa 2.000 iteracija daje:
+
+- Δ WER `-0,040432`, 95% CI `[-0,048148, -0,033025]`;
+- Δ CER `-0,035418`, 95% CI `[-0,038405, -0,032550]`;
+- verovatnoću boljeg WER-a i CER-a `1,0`.
+
+Intervali za WER i CER ne obuhvataju nulu, pa rezultat podržava zaključak da
+izabrani beam+LM decoder pouzdano poboljšava greedy baseline na ovom test skupu.
+Analiza pozicija pokazuje najveću tačnost za dan (91,30%), komandu (88,52%),
+broj (81,11%) i smer (79,81%), dok izolovana slova ostaju najteži deo rečenice.
+
+**Status:** potvrđeno; rezultati su u
+[`decoder_results_v1.json`](results/decoder_results_v1.json), a svih 540
+referenci i predikcija u
+[`decoder_predictions_v1.json`](results/decoder_predictions_v1.json).
+
+## Notebook 08 — konsolidacija za odbranu
+
+Notebook [`08_faza_8_konsolidovani_notebook.ipynb`](../playground/08_faza_8_konsolidovani_notebook.ipynb)
+je implementiran i lokalno validiran kao završni, read-only analitički korak. On
+ne trenira vizuelni model i ne ponavlja preprocessing: učitava artefakte Faza
+03–07, proverava njihov zajednički checkpoint, izvodi jednu obaveznu GPU
+predikciju i generiše sedam figura za izveštaj. Slot-konfuzije eksplicitno vode
+brisanja, a reči van očekivanog rečnika svrstavaju u `ostalo`.
+
+**Status:** kod i struktura notebooka su spremni; Colab GPU izvršavanje i vraćanje
+notebooka sa outputima još nisu obavljeni.
+
+## Status pre finalnog izveštaja
+
+Eksperimentalne Faze 0–7 su završene, a Faza 08 je implementirana. Preostaje
+jedno završno Colab izvršavanje notebooka 08, provera svih sedam PNG izlaza i
+vraćanje izvršenog notebooka u repozitorijum. Posle toga nema dodatnih
+eksperimenata; jedini preostali korak je finalni izveštaj.

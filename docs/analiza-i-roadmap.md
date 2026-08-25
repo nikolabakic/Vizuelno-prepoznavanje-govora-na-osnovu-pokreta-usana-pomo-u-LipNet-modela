@@ -4,10 +4,11 @@ Datum revizije: 25. avgust 2026.
 
 ## Status implementacije
 
-Kod i Colab notebookovi za Faze 0–7 su pripremljeni. Lokalna provera ima 33
-testa. Length-aware GPU rezultati Faza 04–06 su potvrđeni i njihove sanitizovane
-kopije su u [docs/results](results). Faza 7 čeka Colab izvršavanje nad postojećim
-checkpoint-om i mouth ZIP-om; BlazeFace preprocessing se ne ponavlja.
+Kod i Colab notebookovi za Faze 0–8 su pripremljeni. Eksperimentalni tok Faza
+0–7 izvršen je i potvrđen na NVIDIA L4, dok Fazu 8 još treba izvršiti na Colab
+GPU-u i vratiti sa outputima. Lokalna provera obuhvata 34 testa. Sanitizovani
+rezultati Faza 03–07, uključujući decoder metrike i test predikcije, nalaze se u
+[docs/results](results). BlazeFace preprocessing se ne ponavlja.
 
 | Faza | Kod/notebook | Izvršni status |
 |---:|---|---|
@@ -18,7 +19,8 @@ checkpoint-om i mouth ZIP-om; BlazeFace preprocessing se ne ponavlja.
 | 4 | 29-klasni head, transfer audit i CTC backward | potvrđeno na L4 |
 | 5 | length-aware fine-tuning, resume, best-WER izbor i test | potvrđeno, best checkpoint zaključan SHA-256 hashom |
 | 6 | rezolucija, blur, crop pomeranje i baseline recheck | potvrđeno nad 540 test uzoraka |
-| 7 | greedy/beam/5-gram decoder poređenje | implementirano i lokalno testirano; čeka Colab run |
+| 7 | greedy/beam/5-gram decoder poređenje | potvrđeno nad 540 test uzoraka; WER 0,4120 sa LM-om |
+| 8 | konsolidovani notebook za odbranu | implementiran i lokalno validiran; čeka završni Colab GPU run |
 
 ## 1. Nova odluka
 
@@ -128,7 +130,7 @@ scripts/
 data/
 └── splits.py             # eksplicitni speaker ID-jevi; bez manifesta sa uzorcima
 playground/
-└── 00_...07_...          # fazni notebookovi, generisani iz jednog skripta
+└── 00_...08_...          # fazni notebookovi, generisani iz jednog skripta
 docs/
 ├── upstream-diff.md      # obavezna evidencija minimalnih odstupanja
 ├── provera-rezultata.md
@@ -292,22 +294,35 @@ engleski GRID; ne prenose se nekritički na srpski skup bez validation izbora.
 isti kao u Fazi 5, greedy baseline je identičan i ni validation ni test
 transkripti nisu korišćeni za fit jezičkog modela.
 
-### Faza 8 — Jedan Colab notebook i finalni izveštaj
+**Ishod:** svi kriterijumi su ispunjeni. Validation skup je izabrao beam width
+50 bez LM-a i beam width 50 sa train-only 5-gram LM-om (`alpha=1,0`,
+`word_bonus=0,5`). Na test skupu beam+LM ostvaruje WER `0,412037` i CER
+`0,146969`; kompletni rezultati su u
+[`decoder_results_v1.json`](results/decoder_results_v1.json).
+
+### Faza 8 — Konsolidovani Colab notebook pre izveštaja
 
 **Cilj:** omogućiti odbranu projekta iz jednog proverljivog toka.
 
-Notebook treba da:
+Implementirani notebook:
 
-- pin-uje zavisnosti i prikazuje GPU;
-- preuzima/učitava VIPL checkpoint;
-- reprodukuje GRID inference;
-- priprema mali AI-SPEAK uzorak istim preprocessing kodom;
-- učitava najbolji srpski checkpoint i prikazuje predikciju;
-- reprodukuje tabelu rezolucije, blur-a i jitter-a;
-- jasno prikaže koje linije potiču iz VIPL repoa, a koje su nužne adaptacije.
+- montira Drive, proverava GPU i SHA-256 zaključanog checkpoint-a;
+- učitava i validira JSON artefakte Faza 03–07;
+- izvršava jednu GPU predikciju nad test primerom 42 i poredi referencu, greedy i
+  beam+5-gram izlaz sa sačuvanim Phase 7 predikcijama;
+- fituje 5-gram jezički model isključivo nad 2.877 train transkripata;
+- prikazuje baseline, robustnost, dekodere i paired bootstrap intervale;
+- računa tačnost svih šest AI-SPEAK slotova, četiri matrice konfuzije, zamene
+  izolovanih slova i ograničen skup kvalitativnih primera;
+- čuva sedam PNG figura u `MyDrive/LipNet/phase8_report/`.
 
-Izveštaj objašnjava LipNet, CTC, GRID/AI-SPEAK razlike, rezultate, tipične greške,
-ograničenja i sadržaj `docs/upstream-diff.md`.
+Ne ponavlja GRID inference, preprocessing niti trening modela. Matrica iz
+teorijske prezentacije koristi se samo kao ilustracija originalnog LipNet rada
+na GRID-u, ne kao rezultat ovog projekta.
+
+**Status:** implementirano i lokalno validirano; potrebno je još izvršiti
+notebook na Colab GPU-u, potvrditi završne provere i vratiti verziju sa outputima.
+Nakon toga se piše finalni izveštaj.
 
 ## 7. Redosled zavisnosti
 
@@ -328,7 +343,9 @@ rezolucija / blur / jitter evaluacije
         ↓
 greedy / beam / 5-gram decoder evaluacija
         ↓
-Colab demonstracija i izveštaj
+konsolidovani Colab notebook 08
+        ↓
+finalni izveštaj
 ```
 
 Nije dozvoljeno paralelno razvijati lokalni trening sistem pre nego što su završeni

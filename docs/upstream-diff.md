@@ -60,5 +60,5 @@ git ls-remote https://github.com/VIPL-Audio-Visual-Speech-Understanding/LipNet-P
 `app/` pipeline, stari Faza 1/2 notebookovi, njihovi dokumenti i template
 `hello.py` uklonjeni su 24. avgusta 2026. Njihova istorija ostaje dostupna kroz
 Git. Aktivni kod u `lipnet/`, `scripts/prepare_ai_speak.py` i notebookovima
-`00_...`–`07_...` ne čita `manifest.csv`, `roi.csv`, `roi_qa.json`, `vocab.json`
+`00_...`–`08_...` ne čita `manifest.csv`, `roi.csv`, `roi_qa.json`, `vocab.json`
 niti `split.json` i ne koristi statičan/median ROI.

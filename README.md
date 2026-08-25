@@ -20,6 +20,26 @@ test primera govornika koji nisu korišćeni za trening.
 | CER | 22,02% | **18,24%** |
 | Broj primera | 540 | 540 |
 
+### CTC dekodiranje
+
+Faza 07 je završena nad istim zamrznutim checkpoint-om i test skupom. Parametri
+dekodera izabrani su isključivo na validation skupu, dok je test skup evaluiran
+jednom nakon zaključavanja konfiguracije.
+
+| Dekoder | Test WER | Test CER | Exact match |
+|---|---:|---:|---:|
+| Greedy baseline | 45,25% | 18,24% | 0,00% |
+| Prefix beam, bez LM-a | 44,88% | 18,10% | 0,00% |
+| Prefix beam + 5-gram LM | **41,20%** | **14,70%** | **0,37%** |
+
+Najbolji rezultat koristi prefix beam search širine 50 i karakterni 5-gram
+jezički model treniran samo nad 2.877 train transkripata (`α = 1,0`,
+`β = 0,5`). U odnosu na greedy baseline, WER je smanjen za 4,04 procentna
+poena, a CER za 3,54 procentna poena. Izvršeni notebook je
+[`07_faza_7_decoder_search.ipynb`](playground/07_faza_7_decoder_search.ipynb).
+
+### Robustnost ulaza
+
 Eksperimenti robustnosti pokazuju da model zadržava sličan rezultat pri manjoj
 rezoluciji, blagom zamućenju i malom pomeranju regiona usana:
 
@@ -60,7 +80,7 @@ korišćenja.
 |---|---|
 | [`lipnet/`](lipnet/README.md) | model, Dataset adapter, trening, dekoder i evaluacija |
 | [`data/`](data/README.md) | verzionisana speaker-disjoint podela skupa |
-| [`playground/`](playground/README.md) | reproduktivni Google Colab notebookovi, faze 0–7 |
+| [`playground/`](playground/README.md) | reproduktivni Google Colab notebookovi, faze 0–8 |
 | [`scripts/`](scripts/README.md) | preprocessing i generator notebookova |
 | [`docs/`](docs/README.md) | metodologija, tehničke odluke i potvrđeni rezultati |
 | [`tests/`](tests/README.md) | lokalni CPU testovi ključnih ugovora sistema |
@@ -83,7 +103,7 @@ Lokalni testovi ne zahtevaju GPU niti pristup AI-SPEAK podacima.
 ### 2. Eksperimentalni pipeline
 
 Notebookove iz foldera [`playground`](playground/README.md) treba pokretati
-redosledom od `00` do `07`. Oni pokrivaju:
+redosledom od `00` do `08`. Oni pokrivaju:
 
 1. proveru izvornog VIPL modela i GRID inference-a;
 2. pripremu AI-SPEAK snimaka i izdvajanje regiona usana;
@@ -91,7 +111,14 @@ redosledom od `00` do `07`. Oni pokrivaju:
 4. transfer VIPL težina i proveru CTC treninga;
 5. fine-tuning i izbor najboljeg checkpoint-a;
 6. eksperimente robustnosti ulaza;
-7. poređenje greedy i prefix beam CTC dekodiranja.
+7. završeno poređenje greedy i prefix beam CTC dekodiranja, bez i sa
+   karakternim 5-gram jezičkim modelom;
+8. konsolidaciju zaključanih rezultata, obaveznu GPU predikciju, slot-konfuzije
+   i figure namenjene finalnom izveštaju.
+
+Notebook 08 ne ponavlja trening ni preprocessing. Pokreće se poslednji na Colab
+GPU-u, a izvršena verzija sa outputima vraća se u repozitorijum pre pisanja
+finalnog izveštaja.
 
 Notebookovi su generisani skriptom
 [`scripts/build_phase_notebooks.py`](scripts/build_phase_notebooks.py). Izmene
@@ -111,6 +138,7 @@ repozitorijuma. Notebookovi očekuju sledeće podrazumevane Google Drive putanje
 /content/drive/MyDrive/LipNet/ai_speak_lip.zip
 /content/drive/MyDrive/LipNet/phase2_chunks_blazeface/
 /content/drive/MyDrive/LipNet/phase5_length_aware_v2/
+/content/drive/MyDrive/LipNet/phase8_report/
 ```
 
 U repozitorijumu su verzionisani samo kod, notebookovi, dokumentacija i mali

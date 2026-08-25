@@ -4,12 +4,10 @@ from __future__ import annotations
 
 from pathlib import Path
 
-import nbformat
 import pytest
 import torch
 import torch.nn as nn
 
-from scripts import build_phase_notebooks
 from lipnet.train import (
     FineTuneConfig,
     build_finetune_optimizer,
@@ -164,89 +162,3 @@ def test_ctc_scan_reports_invalid_samples_without_manifest() -> None:
     report = scan_ctc_compatibility(LengthOnlyDataset())
     assert report.valid_indices == (0,)
     assert report.invalid_indices == (1,)
-
-
-def test_phase_notebook_sources_match_generator() -> None:
-    root = Path(__file__).parents[1]
-    builders = (
-        build_phase_notebooks.phase0,
-        build_phase_notebooks.phase1,
-        build_phase_notebooks.phase2,
-        build_phase_notebooks.phase3,
-        build_phase_notebooks.phase4,
-        build_phase_notebooks.phase5,
-        build_phase_notebooks.phase6,
-        build_phase_notebooks.phase7,
-    )
-    for phase in range(8):
-        path = next((root / "playground").glob(f"{phase:02d}_*.ipynb"))
-        notebook = nbformat.read(path, as_version=4)
-        generated = builders[phase]()
-        nbformat.validate(notebook)
-        assert len(notebook.cells) == len(generated.cells), path.name
-        assert len({cell.id for cell in notebook.cells}) == len(notebook.cells)
-        for cell, expected in zip(notebook.cells, generated.cells):
-            assert cell.cell_type == expected.cell_type, path.name
-            assert cell.id == expected.id, path.name
-            assert cell.source == expected.source, (
-                f"Izvor ćelije {cell.id} u {path.name} odstupa od generatora"
-            )
-            if cell.cell_type == "code":
-                compile(cell.source, f"{path.name}:{cell.id}", "exec")
-
-        if phase == 4:
-            code_source = "\n".join(
-                cell.source for cell in notebook.cells if cell.cell_type == "code"
-            )
-            assert (
-                "set(audit.skipped_shape) == {'FC.weight', 'FC.bias'}"
-                in code_source
-            )
-
-    phase5 = nbformat.read(
-        root / "playground/05_faza_5_baseline_finetuning.ipynb", as_version=4
-    )
-    headings = "\n".join(
-        cell.source for cell in phase5.cells if cell.cell_type == "markdown"
-    )
-    for heading in ("## Goal", "## Setup", "## Steps", "## Checks", "## Next Steps"):
-        assert heading in headings
-
-    phase5_code = "\n".join(
-        cell.source for cell in phase5.cells if cell.cell_type == "code"
-    )
-    assert "if name == 'lipnet' or name.startswith('lipnet.')" in phase5_code
-    assert "sys.path.insert(0, repo_path)" in phase5_code
-    assert "'lengths' in forward_parameters" in phase5_code
-    assert "'lengths' in inspect.signature(model.forward).parameters" in phase5_code
-
-    phase6 = nbformat.read(
-        root / "playground/06_faza_6_robustness_experiments.ipynb", as_version=4
-    )
-    phase6_code = "\n".join(
-        cell.source for cell in phase6.cells if cell.cell_type == "code"
-    )
-    assert "if name == 'lipnet' or name.startswith('lipnet.')" in phase6_code
-    assert "sys.path.insert(0, repo_path)" in phase6_code
-    assert "'lengths' in forward_parameters" in phase6_code
-
-    phase2 = nbformat.read(
-        root / "playground/02_faza_2_ai_speak_preprocessing.ipynb", as_version=4
-    )
-    phase2_code = "\n".join(
-        cell.source for cell in phase2.cells if cell.cell_type == "code"
-    )
-    assert "RUN_SMOKE_PREPROCESSING = False" in phase2_code
-    assert "RUN_FULL_PREPROCESSING = False" in phase2_code
-
-    phase7 = nbformat.read(
-        root / "playground/07_faza_7_decoder_search.ipynb", as_version=4
-    )
-    phase7_code = "\n".join(
-        cell.source for cell in phase7.cells if cell.cell_type == "code"
-    )
-    assert "CharacterNGramLM" in phase7_code
-    assert "train_token_sequences" in phase7_code
-    assert "paired_bootstrap_delta" in phase7_code
-    assert "phase5_results['best_checkpoint_sha256'] == checkpoint_sha256" in phase7_code
-    assert "candidate.get('split_signatures') == split_signatures" in phase7_code

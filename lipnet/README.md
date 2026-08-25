@@ -32,7 +32,7 @@ greedy ili prefix beam dekodiranje
 | [`demo.py`](demo.py) | dekodiranje videa, poravnanje lica i izdvajanje regiona usana |
 | [`train.py`](train.py) | transfer težina, CTC loss, trening, metrike i checkpoint-i |
 | [`decoder.py`](decoder.py) | CTC prefix beam search i karakterni n-gram jezički model |
-| [`evaluation.py`](evaluation.py) | paired bootstrap i analiza grešaka po pozicijama |
+| [`evaluation.py`](evaluation.py) | paired bootstrap, analiza grešaka po pozicijama i poravnate slot-konfuzije |
 | [`cvtransforms.py`](cvtransforms.py) | video transformacije i normalizacija |
 | [`options.py`](options.py) | zajednički baseline parametri i pinovani VIPL checkpoint |
 | [`LICENSE.vipl`](LICENSE.vipl) | licenca izvornog VIPL koda |
