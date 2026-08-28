@@ -21,6 +21,17 @@ LipNet modela do treninga, robustnosti i naprednog CTC dekodiranja.
 Faze 3–7 koriste već pripremljenu `ai_speak_lip.zip` arhivu, pa preprocessing
 ne mora ponovo da se izvršava pri svakoj evaluaciji.
 
+## Rezultat faze 01
+
+Notebook `01_faza_1_grid_parity.ipynb` izvršen je do kraja na Tesla T4 GPU-u.
+Pinovani VIPL checkpoint strogo je učitan u originalni i lokalni model (24
+tenzora, bez nedostajućih ili neočekivanih ključeva), a oba modela su za isti
+GRID primer dala identičnu predikciju `SET WHITE WITH B TWO SOON`. Referenca je
+`SET WHITE WITH P TWO SOON`, pa su CER i WER tog kontrolnog primera 4,00% i
+16,67%. Audit je tokom izvršavanja zapisan u
+`/content/faza1/phase1_result.json`; za trajno čuvanje treba ga kopirati iz
+privremenog Colab diska.
+
 ## Rezultat faze 07
 
 Notebook `07_faza_7_decoder_search.ipynb` je izvršen do kraja na NVIDIA L4.
@@ -68,11 +79,12 @@ SHA-256 zaključanog `best.pt` checkpoint-a i obavezno izvršava predikciju za t
 primer indeksa 42 na GPU-u. Jezički model se fituje samo nad 2.877 train
 transkripata; validation i test transkripti služe isključivo za evaluaciju.
 
-Notebook je izvršen do kraja na NVIDIA L4: svih 18 kodnih ćelija sadrži output,
-a završna provera prijavljuje `PASS` za checkpoint, GPU demonstraciju, metrike,
-bootstrap intervale i figure. Na demonstracionom primeru 42 beam+5-gram izlaz
-tačno reprodukuje referencu `potvrdi v gore ž nedelja šest`, dok greedy izlaz
-izostavlja oba izolovana slova.
+Notebook je izvršen do kraja na NVIDIA L4: svih 18 kodnih ćelija ima execution
+count, a 17 ćelija koje proizvode prikaz sadrže sačuvani output. Završna provera
+prijavljuje `PASS` za checkpoint, GPU demonstraciju, metrike, bootstrap intervale
+i figure. Na demonstracionom primeru 42 beam+5-gram izlaz tačno reprodukuje
+referencu `potvrdi v gore ž nedelja šest`, dok greedy izlaz izostavlja oba
+izolovana slova.
 
 Pored prikaza u notebooku, sedam PNG figura čuva se u
 `MyDrive/LipNet/phase8_report/`: podela skupa, mouth frejmovi demonstracije,

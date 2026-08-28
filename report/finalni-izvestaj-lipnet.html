@@ -54,6 +54,7 @@
       font-weight: 400;
     }
     p { margin: 0 0 1.4mm; text-align: justify; text-indent: 4mm; }
+    .preserved-text-space { display: block; height: 4lh; }
     p.noindent, .abstract p, .keywords, .caption, .table-note, .references p { text-indent: 0; }
     .abstract-label, .keywords-label { font-weight: 700; font-style: italic; }
     .keywords { margin-bottom: 2.3mm; text-align: justify; }
@@ -165,7 +166,7 @@
     <section>
       <h2>III. Podaci i eksperimentalni protokol</h2>
       <h3>A. Dostavljeni AI-SPEAK podskup</h3>
-      <p>U eksperimentu je korišćen dostavljeni srpski podskup baze AI-SPEAK. Lokalna revizija pronašla je 3.957 uparenih video-zapisa i anotacija za 22 govornika. To nije isto što i celokupna javno opisana baza, koja sadrži srpske i engleske snimke i drugačiji broj govornika i iskaza [6]. Zbog toga se svi brojevi i zaključci u nastavku odnose isključivo na podskup koji je stvarno obrađen.</p>
+      <p>U eksperimentu je korišćen dostavljeni srpski podskup baze AI-SPEAK. Lokalna revizija pronašla je 3.957 uparenih video-zapisa i anotacija za 22 govornika.<span class="preserved-text-space" aria-hidden="true"></span></p>
       <p>Svaka referentna rečenica sledi gramatiku sa šest semantičkih mesta: <i>komanda – slovo – smer – slovo – dan – broj</i>. Govornici su podeljeni pre učenja, pa se nijedan identitet ne pojavljuje u više skupova. Trening čini 16 govornika (spk01, 02, 04, 05, 07, 08, 09, 11, 12, 14, 15, 17, 18, 19, 20 i 21), validaciju spk10, 13 i 16, a test spk03, 06 i 22. Ovakva podela meri generalizaciju na ljude koje model nije video tokom obučavanja.</p>
 
       <table>
