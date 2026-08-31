@@ -1,4 +1,10 @@
-# Vizuelno prepoznavanje srpskog govora pomoću LipNet modela
+# Serbian Visual Speech Recognition with LipNet
+
+Lip-reading Serbian speech from video only using a
+3D CNN + BiGRU + CTC architecture.
+
+**Best test result: 41.20% WER / 14.70% CER**
+using prefix beam search with a character-level 5-gram language model.
 
 Ovaj repozitorijum sadrži kompletan eksperimentalni pipeline za vizuelno
 prepoznavanje srpskog govora: od izdvajanja regiona usana iz AI-SPEAK snimaka,
